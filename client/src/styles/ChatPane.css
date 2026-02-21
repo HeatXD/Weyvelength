@@ -1,0 +1,116 @@
+.chat-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.chat-header {
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.875rem 1.25rem;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+}
+
+.chat-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.chat-channel-name {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.chat-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.members-wrapper {
+  position: relative;
+}
+
+.members-dropdown {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  min-width: 180px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  z-index: 100;
+}
+
+.member-item {
+  padding: 0.5rem 0.875rem;
+  font-size: 0.9rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* WebRTC connection state dot */
+.peer-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.peer-dot-unknown     { background: var(--text-muted); opacity: 0.4; }
+.peer-dot-checking    { background: #f0b429; }
+.peer-dot-connected   { background: #6ee7b7; }
+.peer-dot-open        { background: #22c55e; }
+.peer-dot-closed      { background: #ef4444; }
+.peer-dot-disconnected { background: #ef4444; }
+
+.member-item:last-child {
+  border-bottom: none;
+}
+
+.member-self {
+  color: var(--accent);
+}
+
+.members-empty {
+  padding: 0.5rem 0.875rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.chat-input {
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.875rem 1rem;
+  flex-shrink: 0;
+}
+
+.chat-input input {
+  flex: 1;
+}
+
+.chat-error {
+  padding: 0.25rem 1rem 0.5rem;
+}
+
+.chat-pane-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}

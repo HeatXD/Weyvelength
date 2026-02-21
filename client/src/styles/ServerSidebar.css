@@ -1,0 +1,91 @@
+.server-sidebar {
+  width: 64px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem 0;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+
+.server-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 2px solid transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    border-color 0.15s,
+    border-radius 0.15s,
+    background-color 0.15s;
+  flex-shrink: 0;
+}
+
+.server-icon:hover {
+  border-color: var(--accent);
+  border-radius: 30%;
+  background: var(--bg-hover);
+}
+
+.server-icon.active {
+  border-color: var(--accent);
+  border-radius: 30%;
+  background: var(--accent);
+  color: #fff;
+}
+
+.server-icon.active:hover {
+  border-color: var(--error);
+  background: var(--error);
+}
+
+.server-add {
+  font-size: 1.25rem;
+  font-weight: 400;
+  background: var(--bg);
+  border: 2px dashed var(--border);
+}
+
+.server-add:hover {
+  border-color: var(--accent);
+  border-style: solid;
+  background: var(--bg-hover);
+}
+
+/* Remove button — revealed on hover */
+.server-icon-wrapper {
+  position: relative;
+}
+
+.server-remove {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--error);
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+  padding: 0;
+}
+
+.server-icon-wrapper:hover .server-remove {
+  opacity: 1;
+}
