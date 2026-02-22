@@ -69,12 +69,25 @@
   height: 8px;
   border-radius: 50%;
 }
-.peer-dot-unknown     { background: var(--text-muted); opacity: 0.4; }
-.peer-dot-checking    { background: #f0b429; }
-.peer-dot-connected   { background: #6ee7b7; }
-.peer-dot-open        { background: #22c55e; }
-.peer-dot-closed      { background: #ef4444; }
-.peer-dot-disconnected { background: #ef4444; }
+.peer-dot-unknown {
+  background: var(--text-muted);
+  opacity: 0.4;
+}
+.peer-dot-checking {
+  background: #f0b429;
+}
+.peer-dot-connected {
+  background: #6ee7b7;
+}
+.peer-dot-open {
+  background: #22c55e;
+}
+.peer-dot-closed {
+  background: #ef4444;
+}
+.peer-dot-disconnected {
+  background: #ef4444;
+}
 
 .member-item:last-child {
   border-bottom: none;

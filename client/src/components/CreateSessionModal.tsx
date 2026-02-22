@@ -14,7 +14,10 @@ export default function CreateSessionModal() {
   }
 
   return (
-    <Modal title="New Session" onClose={() => store.setShowCreateSession(false)}>
+    <Modal
+      title="New Session"
+      onClose={() => store.setShowCreateSession(false)}
+    >
       <p style={{ color: "var(--text-muted)", "font-size": "0.875rem" }}>
         Choose session visibility. Private sessions require a code to join.
       </p>

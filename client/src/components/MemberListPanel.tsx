@@ -7,7 +7,13 @@ export default function MemberListPanel() {
   const store = useStore();
 
   return (
-    <Show when={store.showMemberList() && store.connectionStatus() === "connected" && store.activeChannel() === "global"}>
+    <Show
+      when={
+        store.showMemberList() &&
+        store.connectionStatus() === "connected" &&
+        store.activeChannel() === "global"
+      }
+    >
       <div class="member-list-panel">
         <div class="member-list-header">
           Online — {store.globalMembers().length}

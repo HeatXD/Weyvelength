@@ -40,7 +40,12 @@ export default function ChannelPanel() {
                   <Dropdown
                     options={[
                       { label: "Direct only", value: null as string | null },
-                      ...store.turnServers().map((s) => ({ label: s.name, value: s.name as string | null })),
+                      ...store
+                        .turnServers()
+                        .map((s) => ({
+                          label: s.name,
+                          value: s.name as string | null,
+                        })),
                     ]}
                     value={store.selectedTurn() as string | null}
                     onChange={(v) => store.setTurn(v)}
@@ -55,7 +60,10 @@ export default function ChannelPanel() {
                 onClick={() => store.setActiveChannel("global")}
               >
                 <span class="channel-item-name"># global</span>
-                <span class="channel-item-count"><Users size={12} stroke-width={1.75} />{store.globalMembers().length}</span>
+                <span class="channel-item-count">
+                  <Users size={12} stroke-width={1.75} />
+                  {store.globalMembers().length}
+                </span>
               </div>
               <Show when={store.currentSession()}>
                 {(session) => {
@@ -67,9 +75,14 @@ export default function ChannelPanel() {
                       class={`channel-item ${store.activeChannel() === "session" ? "active" : ""}`}
                       onClick={() => store.setActiveChannel("session")}
                     >
-                      <span class="channel-item-name"># {session().session_name}</span>
+                      <span class="channel-item-name">
+                        # {session().session_name}
+                      </span>
                       <Show when={session().is_public}>
-                        <span class="channel-item-count"><Users size={12} stroke-width={1.75} />{count() ?? 0}/{session().max_members}</span>
+                        <span class="channel-item-count">
+                          <Users size={12} stroke-width={1.75} />
+                          {count() ?? 0}/{session().max_members}
+                        </span>
                       </Show>
                       <span
                         class={`session-badge ${session().is_public ? "badge-public" : "badge-private"}`}
@@ -109,17 +122,28 @@ export default function ChannelPanel() {
                 fallback={<p class="channel-empty">No public sessions</p>}
               >
                 {(session) => {
-                  const isCurrent = () => store.currentSession()?.session_id === session.id;
-                  const isFull = () => session.max_members > 0 && session.member_count >= session.max_members;
-                  const isDisabled = () => !isCurrent() && (!!store.currentSession() || isFull());
+                  const isCurrent = () =>
+                    store.currentSession()?.session_id === session.id;
+                  const isFull = () =>
+                    session.max_members > 0 &&
+                    session.member_count >= session.max_members;
+                  const isDisabled = () =>
+                    !isCurrent() && (!!store.currentSession() || isFull());
                   return (
                     <div
                       class={`session-item${isCurrent() ? " session-item-current" : ""}${isDisabled() ? " session-item-disabled" : ""}`}
-                      onClick={() => !isDisabled() && store.enterSession(session.id)}
+                      onClick={() =>
+                        !isCurrent() &&
+                        !isDisabled() &&
+                        store.enterSession(session.id)
+                      }
                     >
                       <span class="session-item-name">{session.name}</span>
                       <Show when={session.is_public}>
-                        <span class="session-item-count"><Users size={12} stroke-width={1.75} />{session.member_count}/{session.max_members}</span>
+                        <span class="session-item-count">
+                          <Users size={12} stroke-width={1.75} />
+                          {session.member_count}/{session.max_members}
+                        </span>
                       </Show>
                       <Show when={isFull() && !isCurrent()}>
                         <span class="session-badge badge-full">Full</span>

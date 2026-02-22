@@ -72,7 +72,9 @@ export default function ChatPane() {
                 title="Toggle online list"
               >
                 <Users size={16} stroke-width={1.75} />
-                {store.globalMembers().length > 0 ? store.globalMembers().length : ""}
+                {store.globalMembers().length > 0
+                  ? store.globalMembers().length
+                  : ""}
               </button>
             </Show>
             <Show when={sessionCtx()}>
@@ -93,20 +95,31 @@ export default function ChatPane() {
                     >
                       {(m) => {
                         const isSelf = () => m === store.username();
-                        const connState = () => isSelf() ? null : store.peerStates().get(m) ?? null;
+                        const connState = () =>
+                          isSelf() ? null : (store.peerStates().get(m) ?? null);
                         const dotClass = () => {
                           switch (connState()) {
-                            case "checking":     return "peer-dot peer-dot-checking";
-                            case "connected":    return "peer-dot peer-dot-connected";
-                            case "open":         return "peer-dot peer-dot-open";
+                            case "checking":
+                              return "peer-dot peer-dot-checking";
+                            case "connected":
+                              return "peer-dot peer-dot-connected";
+                            case "open":
+                              return "peer-dot peer-dot-open";
                             case "disconnected":
-                            case "closed":       return "peer-dot peer-dot-closed";
-                            default:             return "peer-dot peer-dot-unknown";
+                            case "closed":
+                              return "peer-dot peer-dot-closed";
+                            default:
+                              return "peer-dot peer-dot-unknown";
                           }
                         };
                         return (
-                          <div class={`member-item ${isSelf() ? "member-self" : ""}`}>
-                            <span class={dotClass()} title={connState() ?? "not yet connected"} />
+                          <div
+                            class={`member-item ${isSelf() ? "member-self" : ""}`}
+                          >
+                            <span
+                              class={dotClass()}
+                              title={connState() ?? "not yet connected"}
+                            />
                             {m}
                             {isSelf() ? " (you)" : ""}
                           </div>

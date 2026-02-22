@@ -71,8 +71,12 @@ export function createAppStore(): AppStore {
   void server.initServers();
   const session = createSessionSlice(ui.setError);
   const messaging = createMessagingSlice();
-  const [selectedTurn, setSelectedTurnSignal] = createSignal<string | null>(null);
-  const [peerStates, setPeerStates] = createSignal<Map<string, string>>(new Map());
+  const [selectedTurn, setSelectedTurnSignal] = createSignal<string | null>(
+    null,
+  );
+  const [peerStates, setPeerStates] = createSignal<Map<string, string>>(
+    new Map(),
+  );
 
   // Presence + update stream handles (touch index.ts state only, no dedicated slice needed)
   const sessionUpdatesHandle: StreamHandle = { unlisten: null };
@@ -81,6 +85,22 @@ export function createAppStore(): AppStore {
   const memberEventHandle: StreamHandle = { unlisten: null };
   // Kept alive for the entire app session; cleaned up in disconnect().
   const connectionLostHandle: StreamHandle = { unlisten: null };
+
+  let joiningSession = false;
+  async function withJoinGuard(
+    fn: () => Promise<SessionPayload>,
+  ): Promise<void> {
+    if (session.currentSession() || joiningSession) return;
+    joiningSession = true;
+    ui.setError("");
+    try {
+      await joinSessionChannel(await fn());
+    } catch (e) {
+      ui.setError(String(e));
+    } finally {
+      joiningSession = false;
+    }
+  }
 
   // ── Cross-cutting actions ──────────────────────────────────────────────────
 
@@ -144,7 +164,9 @@ export function createAppStore(): AppStore {
   }
 
   function turnServers(): IceServer[] {
-    return (server.serverInfo()?.ice_servers ?? []).filter((s) => s.name !== "");
+    return (server.serverInfo()?.ice_servers ?? []).filter(
+      (s) => s.name !== "",
+    );
   }
 
   async function setTurn(name: string | null): Promise<void> {
@@ -155,7 +177,9 @@ export function createAppStore(): AppStore {
   async function disconnect(): Promise<void> {
     // Clean up WebRTC if in a session
     if (session.currentSession()) {
-      try { await invoke("leave_session_webrtc"); } catch {}
+      try {
+        await invoke("leave_session_webrtc");
+      } catch {}
     }
     for (const h of [
       messaging.globalHandle,
@@ -223,44 +247,38 @@ export function createAppStore(): AppStore {
     // member-event: server-pushed join/leave signals — works for public and
     // private sessions alike.  Refresh the member list and inject a system message.
     teardownHandle(memberEventHandle);
-    memberEventHandle.unlisten = await listen<{ username: string; joined: boolean }>(
-      "member-event",
-      (e) => {
-        const now = Date.now();
-        const action = e.payload.joined ? "joined" : "left";
-        messaging.setSessionMessages((prev) => [
-          ...prev,
-          { username: "", content: `${e.payload.username} ${action}`, timestamp: now, system: true },
-        ]);
-        session.fetchMembers(sess.session_id).catch(() => {});
-      },
-    );
+    memberEventHandle.unlisten = await listen<{
+      username: string;
+      joined: boolean;
+    }>("member-event", (e) => {
+      const now = Date.now();
+      const action = e.payload.joined ? "joined" : "left";
+      messaging.setSessionMessages((prev) => [
+        ...prev,
+        {
+          username: "",
+          content: `${e.payload.username} ${action}`,
+          timestamp: now,
+          system: true,
+        },
+      ]);
+      session.fetchMembers(sess.session_id).catch(() => {});
+    });
   }
 
   async function enterSession(sessionId: string): Promise<void> {
-    ui.setError("");
-    try {
-      const sess = await invoke<SessionPayload>("join_session", { sessionId });
-      await joinSessionChannel(sess);
-    } catch (e) {
-      ui.setError(String(e));
-    }
+    await withJoinGuard(() =>
+      invoke<SessionPayload>("join_session", { sessionId }),
+    );
   }
 
   async function createSession(
     isPublic: boolean,
     maxMembers: number,
   ): Promise<void> {
-    ui.setError("");
-    try {
-      const sess = await invoke<SessionPayload>("create_session", {
-        isPublic,
-        maxMembers,
-      });
-      await joinSessionChannel(sess);
-    } catch (e) {
-      ui.setError(String(e));
-    }
+    await withJoinGuard(() =>
+      invoke<SessionPayload>("create_session", { isPublic, maxMembers }),
+    );
   }
 
   async function leaveSession(): Promise<void> {

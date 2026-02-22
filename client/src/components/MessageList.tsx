@@ -23,7 +23,9 @@ export function MessageList(props: MessageListProps) {
             when={!msg.system}
             fallback={<div class="message-system">{msg.content}</div>}
           >
-            <div class={`message ${msg.username === props.username ? "own" : ""}`}>
+            <div
+              class={`message ${msg.username === props.username ? "own" : ""}`}
+            >
               <Show when={msg.username !== props.username}>
                 <div class="message-author">{msg.username}</div>
               </Show>

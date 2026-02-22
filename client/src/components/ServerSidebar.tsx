@@ -19,7 +19,11 @@ export default function ServerSidebar() {
                   ? store.disconnect()
                   : store.connectToServer(server.id)
               }
-              title={store.activeServerId() === server.id ? `Disconnect from ${server.displayName}` : server.displayName}
+              title={
+                store.activeServerId() === server.id
+                  ? `Disconnect from ${server.displayName}`
+                  : server.displayName
+              }
             >
               {server.displayName.slice(0, 2).toUpperCase()}
             </button>
