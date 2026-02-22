@@ -185,14 +185,3 @@
   color: var(--text-muted);
   white-space: nowrap;
 }
-
-.turn-selector-select {
-  flex: 1;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text);
-  font-size: 0.75rem;
-  padding: 0.2rem 0.35rem;
-  cursor: pointer;
-}

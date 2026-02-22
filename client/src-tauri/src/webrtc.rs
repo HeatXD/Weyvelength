@@ -141,7 +141,9 @@ pub async fn create_peer_connection(
             Box::pin(async move {
                 if let Some(c) = candidate {
                     match c.to_json() {
-                        Ok(init) => match serde_json::to_string(&init) {
+                        Ok(init) => {
+                            eprintln!("[ICE] candidate → {}", init.candidate);
+                            match serde_json::to_string(&init) {
                             Ok(json) => {
                                 let _ = send_signal_grpc(
                                     &app3,
@@ -154,7 +156,7 @@ pub async fn create_peer_connection(
                                 .await;
                             }
                             Err(e) => eprintln!("[ICE] candidate serialize: {e}"),
-                        },
+                        }}
                         Err(e) => eprintln!("[ICE] candidate to_json: {e}"),
                     }
                 }

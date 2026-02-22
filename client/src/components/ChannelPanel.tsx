@@ -4,6 +4,7 @@ import { KeyRound, Plus, Users } from "lucide-solid";
 import { useStore } from "../App";
 import { FormField } from "./FormField";
 import { Modal } from "./Modal";
+import { Dropdown } from "./Dropdown";
 import "../styles/ChannelPanel.css";
 
 export default function ChannelPanel() {
@@ -35,17 +36,15 @@ export default function ChannelPanel() {
               <div class="server-motd">{store.serverInfo()?.motd ?? ""}</div>
               <Show when={hasTurnServers()}>
                 <div class="turn-selector">
-                  <label class="turn-selector-label">Relay</label>
-                  <select
-                    class="turn-selector-select"
-                    value={store.selectedTurn() ?? ""}
-                    onChange={(e) => store.setTurn(e.currentTarget.value || null)}
-                  >
-                    <option value="">Direct only</option>
-                    <For each={store.turnServers()}>
-                      {(srv) => <option value={srv.name}>{srv.name}</option>}
-                    </For>
-                  </select>
+                  <span class="turn-selector-label">Relay</span>
+                  <Dropdown
+                    options={[
+                      { label: "Direct only", value: null as string | null },
+                      ...store.turnServers().map((s) => ({ label: s.name, value: s.name as string | null })),
+                    ]}
+                    value={store.selectedTurn() as string | null}
+                    onChange={(v) => store.setTurn(v)}
+                  />
                 </div>
               </Show>
             </div>
