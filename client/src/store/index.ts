@@ -35,7 +35,10 @@ export interface AppStore {
   /** Name of the currently selected TURN server, or null for direct-only. */
   selectedTurn: () => string | null;
   setTurn: (name: string | null) => Promise<void>;
-  /** WebRTC connection state per peer username. Values: "checking" | "connected" | "open" | "disconnected" | "closed" */
+  /** When true, WebRTC will only use TURN relay candidates (forces relay path). */
+  forceRelay: () => boolean;
+  setForceRelay: (v: boolean) => void;
+  /** WebRTC connection state per peer username. Values: "checking" | "connected" | "open" | "disconnected" | "failed" | "closed" */
   peerStates: () => Map<string, string>;
   sessions: () => SessionInfo[];
   currentSession: () => SessionPayload | null;
@@ -74,6 +77,7 @@ export function createAppStore(): AppStore {
   const [selectedTurn, setSelectedTurnSignal] = createSignal<string | null>(
     null,
   );
+  const [forceRelay, setForceRelay] = createSignal<boolean>(false);
   const [peerStates, setPeerStates] = createSignal<Map<string, string>>(
     new Map(),
   );
@@ -89,12 +93,13 @@ export function createAppStore(): AppStore {
   let joiningSession = false;
   async function withJoinGuard(
     fn: () => Promise<SessionPayload>,
+    isOwner = false,
   ): Promise<void> {
     if (session.currentSession() || joiningSession) return;
     joiningSession = true;
     ui.setError("");
     try {
-      await joinSessionChannel(await fn());
+      await joinSessionChannel(await fn(), isOwner);
     } catch (e) {
       ui.setError(String(e));
     } finally {
@@ -210,7 +215,7 @@ export function createAppStore(): AppStore {
     session.setGlobalMembers([]);
   }
 
-  async function joinSessionChannel(sess: SessionPayload): Promise<void> {
+  async function joinSessionChannel(sess: SessionPayload, isOwner: boolean): Promise<void> {
     setPeerStates(new Map()); // reset on each new session join
     session.setCurrentSession(sess);
     messaging.setActiveChannel("session");
@@ -219,9 +224,26 @@ export function createAppStore(): AppStore {
     // Populate the member list immediately so the panel is ready before opening.
     await session.fetchMembers(sess.session_id);
 
+    // Pre-populate "connecting…" messages for all existing peers synchronously,
+    // before any WebRTC events can fire — avoids race between on_peer_connection_state_change
+    // ("checking") and on_open ("open") which are separate async Rust callbacks.
+    const connectingPeers = new Set<string>(sess.existing_peers);
+    const now = Date.now();
+    if (sess.existing_peers.length > 0) {
+      messaging.setSessionMessages(
+        sess.existing_peers.map((peer) => ({
+          username: "",
+          content: `${peer} is connecting…`,
+          timestamp: now,
+          system: true,
+        })),
+      );
+    }
+
     await invoke("join_session_webrtc", {
       sessionId: sess.session_id,
       existingPeers: sess.existing_peers,
+      forceRelay: forceRelay(),
     });
 
     // session-message: incoming WebRTC data channel messages
@@ -233,35 +255,82 @@ export function createAppStore(): AppStore {
 
     // peer-state: WebRTC connection status per peer
     teardownHandle(peerStateHandle);
+    const failedPeers = new Set<string>();
+    const leftPeers = new Set<string>();
     peerStateHandle.unlisten = await listen<{ peer: string; state: string }>(
       "peer-state",
       (e) => {
+        const { peer, state } = e.payload;
         setPeerStates((prev) => {
           const next = new Map(prev);
-          next.set(e.payload.peer, e.payload.state);
+          next.set(peer, state);
           return next;
         });
+
+        if (state === "open" && connectingPeers.has(peer)) {
+          connectingPeers.delete(peer);
+          messaging.setSessionMessages((prev) => {
+            const idx = prev.findLastIndex(
+              (m) => m.system && m.content === `${peer} is connecting…`,
+            );
+            if (idx === -1) return prev;
+            const next = [...prev];
+            next[idx] = { ...next[idx], content: `${peer} joined` };
+            return next;
+          });
+        } else if (state === "failed" && !failedPeers.has(peer) && !leftPeers.has(peer) && session.currentSession()) {
+          failedPeers.add(peer);
+          // Only auto-leave if we have no other open peer connections — i.e. this
+          // failure leaves us completely isolated. If we're still connected to
+          // other peers, just show an error and stay in the session.
+          const hasOtherOpen = [...peerStates().entries()].some(
+            ([p, s]) => p !== peer && s === "open",
+          );
+          if (!isOwner && !hasOtherOpen) {
+            leaveSession().then(() => {
+              ui.setError(`Could not connect to ${peer}. Leaving session.`);
+            }).catch(() => {});
+          } else {
+            ui.setError(`Could not connect to ${peer}.`);
+          }
+        }
       },
     );
 
     // member-event: server-pushed join/leave signals — works for public and
     // private sessions alike.  Refresh the member list and inject a system message.
     teardownHandle(memberEventHandle);
+    const self = server.username();
     memberEventHandle.unlisten = await listen<{
       username: string;
       joined: boolean;
     }>("member-event", (e) => {
-      const now = Date.now();
-      const action = e.payload.joined ? "joined" : "left";
-      messaging.setSessionMessages((prev) => [
-        ...prev,
-        {
-          username: "",
-          content: `${e.payload.username} ${action}`,
-          timestamp: now,
-          system: true,
-        },
-      ]);
+      const { username, joined } = e.payload;
+      if (username !== self) {
+        if (joined) {
+          connectingPeers.add(username);
+          messaging.setSessionMessages((prev) => [
+            ...prev,
+            {
+              username: "",
+              content: `${username} is connecting…`,
+              timestamp: Date.now(),
+              system: true,
+            },
+          ]);
+        } else {
+          leftPeers.add(username);
+          messaging.setSessionMessages((prev) => [
+            ...prev,
+            {
+              username: "",
+              content: `${username} left`,
+              timestamp: Date.now(),
+              system: true,
+            },
+          ]);
+        }
+      }
       session.fetchMembers(sess.session_id).catch(() => {});
     });
   }
@@ -276,8 +345,9 @@ export function createAppStore(): AppStore {
     isPublic: boolean,
     maxMembers: number,
   ): Promise<void> {
-    await withJoinGuard(() =>
-      invoke<SessionPayload>("create_session", { isPublic, maxMembers }),
+    await withJoinGuard(
+      () => invoke<SessionPayload>("create_session", { isPublic, maxMembers }),
+      true,
     );
   }
 
@@ -335,6 +405,8 @@ export function createAppStore(): AppStore {
     turnServers,
     selectedTurn,
     setTurn,
+    forceRelay,
+    setForceRelay,
     peerStates,
     username: server.username,
     addServer: server.addServer,

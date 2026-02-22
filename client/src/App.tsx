@@ -1,4 +1,5 @@
 import { createContext, onCleanup, Show, useContext } from "solid-js";
+import { invoke } from "@tauri-apps/api/core";
 
 import AddServerModal from "./components/AddServerModal";
 import ChannelPanel from "./components/ChannelPanel";
@@ -17,7 +18,18 @@ export function useStore() {
 
 function App() {
   const store = createAppStore();
-  onCleanup(() => store.disconnect().catch(() => {}));
+
+  // F5 / hard refresh: beforeunload fires but async can't be awaited.
+  // Fire the IPC message synchronously so the backend receives it before the
+  // webview reloads. onCleanup handles normal SolidJS teardown.
+  function handleBeforeUnload() {
+    invoke("disconnect").catch(() => {});
+  }
+  window.addEventListener("beforeunload", handleBeforeUnload);
+  onCleanup(() => {
+    window.removeEventListener("beforeunload", handleBeforeUnload);
+    store.disconnect().catch(() => {});
+  });
 
   return (
     <StoreContext.Provider value={store}>

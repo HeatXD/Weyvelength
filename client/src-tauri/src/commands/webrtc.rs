@@ -30,7 +30,9 @@ pub async fn join_session_webrtc(
     state: State<'_, AppState>,
     session_id: String,
     existing_peers: Vec<String>,
+    force_relay: bool,
 ) -> Result<(), String> {
+    *state.force_relay.lock().unwrap_or_else(|e| e.into_inner()) = force_relay;
     *state.current_session_id.lock().unwrap_or_else(|e| e.into_inner()) = Some(session_id.clone());
     state.close_all_peer_connections().await;
 
@@ -58,6 +60,7 @@ pub async fn join_session_webrtc(
             ice_servers.clone(),
             true,  // we are the initiator (new joiner)
             None,
+            force_relay,
         )
         .await
         {
@@ -176,6 +179,7 @@ async fn handle_incoming_signal(app: AppHandle, signal: Signal) {
             Some(s) => s,
             None => return,
         };
+        let force_relay = *state.force_relay.lock().unwrap_or_else(|e| e.into_inner());
 
         match create_peer_connection(
             app.clone(),
@@ -185,6 +189,7 @@ async fn handle_incoming_signal(app: AppHandle, signal: Signal) {
             ice_servers,
             false,       // answerer
             Some(signal),
+            force_relay,
         )
         .await
         {

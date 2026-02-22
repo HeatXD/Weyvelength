@@ -1,16 +1,18 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex as TokioMutex;
 use webrtc::{
-    api::APIBuilder,
+    api::{setting_engine::SettingEngine, APIBuilder},
     data_channel::{
         data_channel_init::RTCDataChannelInit,
         data_channel_message::DataChannelMessage as DcMsg,
         RTCDataChannel,
     },
     ice_transport::ice_server::RTCIceServer,
+    peer_connection::policy::ice_transport_policy::RTCIceTransportPolicy,
     peer_connection::{
         configuration::RTCConfiguration,
         peer_connection_state::RTCPeerConnectionState,
@@ -38,7 +40,7 @@ pub struct DataChannelMessage {
 #[derive(Serialize, Clone)]
 pub struct PeerStatePayload {
     pub peer: String,
-    /// One of: "checking" | "connected" | "open" | "disconnected" | "closed"
+    /// One of: "checking" | "connected" | "open" | "disconnected" | "failed" | "closed"
     pub state: String,
 }
 
@@ -65,6 +67,7 @@ pub async fn create_peer_connection(
     ice_servers: Vec<IceServerEntry>,
     is_initiator: bool,
     initial_signal: Option<Signal>,
+    force_relay: bool,
 ) -> Result<PeerEntry, BoxError> {
     // ── ICE configuration ─────────────────────────────────────────────────────
     let rtc_ice_servers: Vec<RTCIceServer> = if ice_servers.is_empty() {
@@ -86,10 +89,21 @@ pub async fn create_peer_connection(
 
     let config = RTCConfiguration {
         ice_servers: rtc_ice_servers,
+        ice_transport_policy: if force_relay {
+            RTCIceTransportPolicy::Relay
+        } else {
+            RTCIceTransportPolicy::All
+        },
         ..Default::default()
     };
 
-    let api = APIBuilder::new().build();
+    let mut se = SettingEngine::default();
+    se.set_ice_timeouts(
+        Some(Duration::from_secs(3)), // disconnected timeout
+        Some(Duration::from_secs(5)), // failed timeout
+        Some(Duration::from_secs(2)), // keepalive interval
+    );
+    let api = APIBuilder::new().with_setting_engine(se).build();
     let pc = Arc::new(api.new_peer_connection(config).await?);
 
     let chat_dc_slot: Arc<TokioMutex<Option<Arc<RTCDataChannel>>>> =
@@ -109,7 +123,7 @@ pub async fn create_peer_connection(
                     RTCPeerConnectionState::Connecting => "checking",
                     RTCPeerConnectionState::Connected => "connected",
                     RTCPeerConnectionState::Disconnected => "disconnected",
-                    RTCPeerConnectionState::Failed => "disconnected",
+                    RTCPeerConnectionState::Failed => "failed",
                     RTCPeerConnectionState::Closed => "closed",
                     _ => "",
                 }

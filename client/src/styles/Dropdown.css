@@ -20,8 +20,13 @@
   transition: border-color 0.15s;
 }
 
-.dropdown-btn:hover {
+.dropdown-btn:hover:not(:disabled) {
   border-color: var(--text-muted);
+}
+
+.dropdown-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .dropdown-value {

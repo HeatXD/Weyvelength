@@ -11,6 +11,7 @@ interface DropdownProps<T> {
   value: T;
   onChange: (value: T) => void;
   placeholder?: string;
+  disabled?: boolean;
 }
 
 export function Dropdown<T>(props: DropdownProps<T>) {
@@ -35,7 +36,7 @@ export function Dropdown<T>(props: DropdownProps<T>) {
 
   return (
     <div class="dropdown">
-      <button class="dropdown-btn" onClick={() => setOpen((o) => !o)}>
+      <button class="dropdown-btn" onClick={() => !props.disabled && setOpen((o) => !o)} disabled={props.disabled}>
         <span class="dropdown-value">{selectedLabel()}</span>
         <span class="dropdown-arrow">▾</span>
       </button>

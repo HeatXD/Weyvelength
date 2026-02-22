@@ -153,6 +153,17 @@ pub async fn handle_leave_session(
     // them, so we can notify them after the member is gone.
     let (update_tx, leave_senders) = {
         let mut state = state.lock().unwrap();
+        // If the user isn't a member the RPC is a duplicate (e.g. two failing
+        // WebRTC connections both triggered leave on the client side). Return
+        // early so we don't fan-out a second MemberLeft signal.
+        if !state
+            .sessions
+            .get(&req.session_id)
+            .map(|s| s.members.contains(&req.username))
+            .unwrap_or(false)
+        {
+            return Ok(Response::new(LeaveSessionResponse {}));
+        }
         let leave_senders: Vec<_> = state
             .sessions
             .get(&req.session_id)

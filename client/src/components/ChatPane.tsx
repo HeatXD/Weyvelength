@@ -105,6 +105,7 @@ export default function ChatPane() {
                               return "peer-dot peer-dot-connected";
                             case "open":
                               return "peer-dot peer-dot-open";
+                            case "failed":
                             case "disconnected":
                             case "closed":
                               return "peer-dot peer-dot-closed";

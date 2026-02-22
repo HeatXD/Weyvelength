@@ -48,9 +48,22 @@ export default function ChannelPanel() {
                     ]}
                     value={store.selectedTurn() as string | null}
                     onChange={(v) => store.setTurn(v)}
+                    disabled={!!store.currentSession()}
                   />
                 </div>
               </Show>
+              <div class="force-relay-row">
+                <span class="turn-selector-label">Force Relay</span>
+                <button
+                  role="switch"
+                  aria-checked={store.forceRelay()}
+                  class={`relay-toggle${store.forceRelay() ? " relay-toggle-on" : ""}${!!store.currentSession() ? " relay-toggle-disabled" : ""}`}
+                  onClick={() =>
+                    !store.currentSession() &&
+                    store.setForceRelay(!store.forceRelay())
+                  }
+                />
+              </div>
             </div>
 
             <div class="channel-list">

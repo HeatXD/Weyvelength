@@ -44,6 +44,8 @@ pub struct AppState {
     pub selected_turn: Mutex<Option<String>>,
     pub peer_connections: Mutex<HashMap<String, PeerEntry>>,
     pub current_session_id: Mutex<Option<String>>,
+    /// When true, WebRTC is configured to use only TURN relay candidates.
+    pub force_relay: Mutex<bool>,
 }
 
 impl AppState {
@@ -59,6 +61,7 @@ impl AppState {
             selected_turn: Mutex::new(None),
             peer_connections: Mutex::new(HashMap::new()),
             current_session_id: Mutex::new(None),
+            force_relay: Mutex::new(false),
         }
     }
 
