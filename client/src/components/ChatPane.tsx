@@ -150,9 +150,6 @@ export default function ChatPane() {
             onInput={(e) => setInput(e.currentTarget.value)}
             onKeyDown={(e) => e.key === "Enter" && sendMessage()}
           />
-          <button class="btn btn-primary" onClick={sendMessage}>
-            Send
-          </button>
         </div>
       </Show>
     </div>

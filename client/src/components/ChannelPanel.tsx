@@ -35,17 +35,16 @@ export default function ChannelPanel() {
               </div>
               <div class="server-motd">{store.serverInfo()?.motd ?? ""}</div>
               <Show when={hasTurnServers()}>
+                <br />
                 <div class="turn-selector">
                   <span class="turn-selector-label">Relay</span>
                   <Dropdown
                     options={[
                       { label: "Direct only", value: null as string | null },
-                      ...store
-                        .turnServers()
-                        .map((s) => ({
-                          label: s.name,
-                          value: s.name as string | null,
-                        })),
+                      ...store.turnServers().map((s) => ({
+                        label: s.name,
+                        value: s.name as string | null,
+                      })),
                     ]}
                     value={store.selectedTurn() as string | null}
                     onChange={(v) => store.setTurn(v)}
