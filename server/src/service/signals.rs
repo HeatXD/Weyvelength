@@ -28,10 +28,10 @@ pub async fn handle_send_signal(
 
     if let Some(tx) = sender {
         let kind_label = match signal.kind {
-            k if k == SignalKind::SdpOffer as i32     => "offer",
-            k if k == SignalKind::SdpAnswer as i32    => "answer",
+            k if k == SignalKind::SdpOffer as i32 => "offer",
+            k if k == SignalKind::SdpAnswer as i32 => "answer",
             k if k == SignalKind::IceCandidate as i32 => "ice",
-            _                                         => "unknown",
+            _ => "unknown",
         };
         println!(
             "[signal] {} {} → {} in {}",

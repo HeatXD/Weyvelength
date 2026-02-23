@@ -36,20 +36,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut ice_servers: Vec<IceServerConfig> = cli
         .stun
         .into_iter()
-        .map(|url| IceServerConfig { url, username: String::new(), credential: String::new(), name: String::new() })
+        .map(|url| IceServerConfig {
+            url,
+            username: String::new(),
+            credential: String::new(),
+            name: String::new(),
+        })
         .collect();
 
     for spec in cli.turn {
         let parts: Vec<&str> = spec.splitn(4, '|').collect();
         if parts.len() == 4 {
             ice_servers.push(IceServerConfig {
-                name:       parts[0].to_string(),
-                url:        parts[1].to_string(),
-                username:   parts[2].to_string(),
+                name: parts[0].to_string(),
+                url: parts[1].to_string(),
+                username: parts[2].to_string(),
                 credential: parts[3].to_string(),
             });
         } else {
-            eprintln!("Warning: ignoring malformed --turn value (expected Name|url|user|cred): {spec}");
+            eprintln!(
+                "Warning: ignoring malformed --turn value (expected Name|url|user|cred): {spec}"
+            );
         }
     }
 

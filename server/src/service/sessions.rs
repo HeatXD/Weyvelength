@@ -7,7 +7,7 @@ use crate::codegen::weyvelength::{
     ListSessionsRequest, ListSessionsResponse, Signal, SignalKind,
 };
 use crate::session::{generate_lobby_code, join_session_inner, leave_session_inner};
-use crate::state::{SessionData, SharedState, BROADCAST_CAPACITY};
+use crate::state::{BROADCAST_CAPACITY, SessionData, SharedState};
 
 use super::helpers::{notify_sessions_changed, public_sessions};
 
@@ -45,8 +45,7 @@ pub async fn handle_create_session(
             },
         );
 
-        join_session_inner(&mut *state, &code, &req.username)
-            .map_err(Status::internal)?;
+        join_session_inner(&mut *state, &code, &req.username).map_err(Status::internal)?;
 
         let update_tx = state.session_update_tx.clone();
         (code, req.is_public, max_members, update_tx)
@@ -58,7 +57,10 @@ pub async fn handle_create_session(
 
     let host = req.username.clone();
     let visibility = if is_public { "public" } else { "private" };
-    println!("[session] created {} by {} ({}, max={})", code, req.username, visibility, max_members);
+    println!(
+        "[session] created {} by {} ({}, max={})",
+        code, req.username, visibility, max_members
+    );
 
     Ok(Response::new(CreateSessionResponse {
         session_id: code.clone(),
@@ -82,9 +84,7 @@ pub async fn handle_join_session(
                 .sessions
                 .get(&req.session_id)
                 .ok_or_else(|| Status::not_found("Session not found"))?;
-            if session.max_members > 0
-                && session.members.len() as u32 >= session.max_members
-            {
+            if session.max_members > 0 && session.members.len() as u32 >= session.max_members {
                 return Err(Status::resource_exhausted("Session is full"));
             }
         }
@@ -135,7 +135,8 @@ pub async fn handle_join_session(
 
     println!(
         "[session] {} joined {} ({} existing peer{})",
-        req.username, session_id,
+        req.username,
+        session_id,
         existing_peers.len(),
         if existing_peers.len() == 1 { "" } else { "s" }
     );
@@ -203,7 +204,11 @@ pub async fn handle_leave_session(
         } else {
             None
         };
-        (was_public.then(|| state.session_update_tx.clone()), leave_senders, host_changed)
+        (
+            was_public.then(|| state.session_update_tx.clone()),
+            leave_senders,
+            host_changed,
+        )
     };
 
     if let Some(tx) = update_tx {
@@ -234,7 +239,10 @@ pub async fn handle_leave_session(
         for tx in host_senders {
             let _ = tx.send(host_sig.clone());
         }
-        println!("[session] host of {} migrated to {}", req.session_id, new_host);
+        println!(
+            "[session] host of {} migrated to {}",
+            req.session_id, new_host
+        );
     }
 
     println!("[session] {} left {}", req.username, req.session_id);

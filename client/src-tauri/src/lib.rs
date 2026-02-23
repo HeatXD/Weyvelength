@@ -3,7 +3,13 @@ mod grpc;
 mod state;
 mod webrtc;
 
-use commands::{connection::{connect, disconnect, get_server_info, set_turn_server}, messaging::*, sessions::*, streaming::*, webrtc::*};
+use commands::{
+    connection::{connect, disconnect, get_server_info, set_turn_server},
+    messaging::*,
+    sessions::*,
+    streaming::*,
+    webrtc::*,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

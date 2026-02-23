@@ -3,11 +3,11 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tonic::{Response, Status};
 
 use crate::codegen::weyvelength::{
-    ChatMessage, GlobalMembersEvent, SessionInfo, SessionsUpdatedEvent,
-    StreamGlobalMembersRequest, StreamMessagesRequest, StreamSessionUpdatesRequest,
+    ChatMessage, GlobalMembersEvent, SessionInfo, SessionsUpdatedEvent, StreamGlobalMembersRequest,
+    StreamMessagesRequest, StreamSessionUpdatesRequest,
 };
 use crate::session::leave_session_inner;
-use crate::state::{SharedState, GLOBAL_SESSION_ID};
+use crate::state::{GLOBAL_SESSION_ID, SharedState};
 
 use super::helpers::{notify_sessions_changed, public_sessions};
 
@@ -26,7 +26,10 @@ pub async fn handle_stream_messages(
     let (broadcast_rx, global_members_tx, newly_added) = {
         let mut state = state.lock().unwrap();
         let newly_added = if is_global {
-            let ref_count = state.global_stream_refs.entry(username.clone()).or_insert(0);
+            let ref_count = state
+                .global_stream_refs
+                .entry(username.clone())
+                .or_insert(0);
             *ref_count += 1;
             if *ref_count == 1 {
                 let global = state.sessions.get_mut(GLOBAL_SESSION_ID).unwrap();
@@ -77,8 +80,13 @@ pub async fn handle_stream_messages(
             if is_global {
                 let mut state = state_clone.lock().unwrap();
                 let remove = {
-                    let ref_count = state.global_stream_refs.entry(username.clone()).or_insert(0);
-                    if *ref_count > 0 { *ref_count -= 1; }
+                    let ref_count = state
+                        .global_stream_refs
+                        .entry(username.clone())
+                        .or_insert(0);
+                    if *ref_count > 0 {
+                        *ref_count -= 1;
+                    }
                     *ref_count == 0
                 };
                 if remove {
@@ -126,7 +134,10 @@ pub async fn handle_stream_session_updates(
             let state = state_clone.lock().unwrap();
             public_sessions(&state)
         };
-        if tx.send(Ok(SessionsUpdatedEvent { sessions: initial })).is_err() {
+        if tx
+            .send(Ok(SessionsUpdatedEvent { sessions: initial }))
+            .is_err()
+        {
             return;
         }
 
@@ -171,7 +182,10 @@ pub async fn handle_stream_global_members(
 
     let (tx, rx) = mpsc::unbounded_channel::<Result<GlobalMembersEvent, Status>>();
 
-    if tx.send(Ok(GlobalMembersEvent { members: initial })).is_err() {
+    if tx
+        .send(Ok(GlobalMembersEvent { members: initial }))
+        .is_err()
+    {
         return Ok(Response::new(UnboundedReceiverStream::new(rx)));
     }
 

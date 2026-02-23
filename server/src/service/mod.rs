@@ -2,17 +2,17 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tonic::{transport::Server, Request, Response, Status};
+use tonic::{Request, Response, Status, transport::Server};
 
 use crate::codegen::weyvelength::{
-    weyvelength_server::{Weyvelength, WeyvelengthServer},
     ChatMessage, CreateSessionRequest, CreateSessionResponse, GetMembersRequest,
-    GetMembersResponse, GetServerInfoRequest, GetServerInfoResponse, GlobalMembersEvent,
-    IceServer, JoinSessionRequest, JoinSessionResponse, LeaveSessionRequest, LeaveSessionResponse,
+    GetMembersResponse, GetServerInfoRequest, GetServerInfoResponse, GlobalMembersEvent, IceServer,
+    JoinSessionRequest, JoinSessionResponse, LeaveSessionRequest, LeaveSessionResponse,
     ListSessionsRequest, ListSessionsResponse, SendMessageRequest, SendMessageResponse,
     SendSignalRequest, SendSignalResponse, SessionsUpdatedEvent, Signal,
     StreamGlobalMembersRequest, StreamMessagesRequest, StreamSessionUpdatesRequest,
     StreamSignalsRequest,
+    weyvelength_server::{Weyvelength, WeyvelengthServer},
 };
 use crate::state::{IceServerConfig, ServerState, SharedState};
 
@@ -130,8 +130,7 @@ impl Weyvelength for WeyvelengthService {
         signals::handle_stream_signals(&self.state, request.into_inner()).await
     }
 
-    type StreamSessionUpdatesStream =
-        UnboundedReceiverStream<Result<SessionsUpdatedEvent, Status>>;
+    type StreamSessionUpdatesStream = UnboundedReceiverStream<Result<SessionsUpdatedEvent, Status>>;
 
     async fn stream_session_updates(
         &self,
@@ -140,8 +139,7 @@ impl Weyvelength for WeyvelengthService {
         streams::handle_stream_session_updates(&self.state, StreamSessionUpdatesRequest {}).await
     }
 
-    type StreamGlobalMembersStream =
-        UnboundedReceiverStream<Result<GlobalMembersEvent, Status>>;
+    type StreamGlobalMembersStream = UnboundedReceiverStream<Result<GlobalMembersEvent, Status>>;
 
     async fn stream_global_members(
         &self,

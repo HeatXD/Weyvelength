@@ -1,8 +1,6 @@
 use tonic::{Response, Status};
 
-use crate::codegen::weyvelength::{
-    ChatMessage, SendMessageRequest, SendMessageResponse,
-};
+use crate::codegen::weyvelength::{ChatMessage, SendMessageRequest, SendMessageResponse};
 use crate::session::now_timestamp;
 use crate::state::SharedState;
 
@@ -22,7 +20,10 @@ pub async fn handle_send_message(
         content: req.content.clone(),
         timestamp: now_timestamp(),
     };
-    println!("[msg] {} in {}: {}", req.username, req.session_id, req.content);
+    println!(
+        "[msg] {} in {}: {}",
+        req.username, req.session_id, req.content
+    );
     let _ = session.tx.send(msg);
 
     Ok(Response::new(SendMessageResponse {}))

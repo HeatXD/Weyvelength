@@ -2,7 +2,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use uuid::Uuid;
 
-use crate::state::{ServerState, GLOBAL_SESSION_ID};
+use crate::state::{GLOBAL_SESSION_ID, ServerState};
 
 const LOBBY_CODE_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
