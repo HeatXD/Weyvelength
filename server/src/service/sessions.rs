@@ -1,4 +1,7 @@
-use tokio::sync::broadcast;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+use tokio::sync::{Mutex, broadcast};
 use tonic::{Response, Status};
 
 use crate::codegen::weyvelength::{
@@ -6,8 +9,11 @@ use crate::codegen::weyvelength::{
     JoinSessionRequest, JoinSessionResponse, LeaveSessionRequest, LeaveSessionResponse,
     ListSessionsRequest, ListSessionsResponse, Signal, SignalKind,
 };
-use crate::session::{generate_lobby_code, join_session_inner, leave_session_inner};
-use crate::state::{BROADCAST_CAPACITY, SessionData, SharedState};
+use crate::session::{LeaveInfo, generate_lobby_code, join_session_inner, leave_session_inner};
+use crate::state::{
+    BROADCAST_CAPACITY, SESSION_MAX_MEMBERS, SESSION_MIN_MEMBERS, SessionData, SessionInner,
+    SharedState,
+};
 
 use super::helpers::{notify_sessions_changed, public_sessions};
 
@@ -15,9 +21,8 @@ pub async fn handle_list_sessions(
     state: &SharedState,
     _req: ListSessionsRequest,
 ) -> Result<Response<ListSessionsResponse>, Status> {
-    let state = state.lock().unwrap();
     Ok(Response::new(ListSessionsResponse {
-        sessions: public_sessions(&state),
+        sessions: public_sessions(state).await,
     }))
 }
 
@@ -25,50 +30,50 @@ pub async fn handle_create_session(
     state: &SharedState,
     req: CreateSessionRequest,
 ) -> Result<Response<CreateSessionResponse>, Status> {
-    let (code, is_public, max_members, update_tx) = {
-        let mut state = state.lock().unwrap();
-        let code = generate_lobby_code(&state);
-        let (tx, _) = broadcast::channel(BROADCAST_CAPACITY);
-        let max_members = req.max_members.max(2);
+    let code = generate_lobby_code(state);
+    let (tx, _) = broadcast::channel(BROADCAST_CAPACITY);
+    let max_members = req
+        .max_members
+        .clamp(SESSION_MIN_MEMBERS, SESSION_MAX_MEMBERS);
 
-        state.sessions.insert(
-            code.clone(),
-            SessionData {
-                id: code.clone(),
-                name: code.clone(),
-                host: req.username.clone(),
-                members: vec![],
-                is_public: req.is_public,
-                max_members,
-                tx,
-                signal_senders: std::collections::HashMap::new(),
-            },
-        );
+    let session = Arc::new(SessionData {
+        id: code.clone(),
+        name: code.clone(),
+        is_public: req.is_public,
+        max_members,
+        tx,
+        inner: Mutex::new(SessionInner {
+            host: req.username.clone(),
+            members: HashSet::new(),
+            signal_senders: HashMap::new(),
+        }),
+    });
 
-        join_session_inner(&mut *state, &code, &req.username).map_err(Status::internal)?;
+    state.sessions.insert(code.clone(), session);
 
-        let update_tx = state.session_update_tx.clone();
-        (code, req.is_public, max_members, update_tx)
-    };
+    join_session_inner(state, &code, &req.username)
+        .await
+        .map_err(Status::internal)?;
 
-    if is_public {
-        notify_sessions_changed(&update_tx);
+    if req.is_public {
+        notify_sessions_changed(&state.session_update_tx);
     }
 
-    let host = req.username.clone();
-    let visibility = if is_public { "public" } else { "private" };
     println!(
         "[session] created {} by {} ({}, max={})",
-        code, req.username, visibility, max_members
+        code,
+        req.username,
+        if req.is_public { "public" } else { "private" },
+        max_members
     );
 
     Ok(Response::new(CreateSessionResponse {
         session_id: code.clone(),
         session_name: code,
-        is_public,
+        is_public: req.is_public,
         max_members,
         existing_peers: vec![],
-        host,
+        host: req.username,
     }))
 }
 
@@ -76,76 +81,69 @@ pub async fn handle_join_session(
     state: &SharedState,
     req: JoinSessionRequest,
 ) -> Result<Response<JoinSessionResponse>, Status> {
-    let (session_id, session_name, is_public, max_members, existing_peers, host, update_tx) = {
-        let mut state = state.lock().unwrap();
+    // Clone the Arc out of DashMap immediately so the shard lock isn't held
+    // across any await points below.
+    let session = state
+        .sessions
+        .get(&req.session_id)
+        .ok_or_else(|| Status::not_found("Session not found"))?
+        .value()
+        .clone();
 
-        {
-            let session = state
-                .sessions
-                .get(&req.session_id)
-                .ok_or_else(|| Status::not_found("Session not found"))?;
-            if session.max_members > 0 && session.members.len() as u32 >= session.max_members {
-                return Err(Status::resource_exhausted("Session is full"));
-            }
+    {
+        let inner = session.inner.lock().await;
+        if session.max_members > 0 && inner.members.len() as u32 >= session.max_members {
+            return Err(Status::resource_exhausted("Session is full"));
         }
+    }
 
-        join_session_inner(&mut *state, &req.session_id, &req.username)
-            .map_err(Status::not_found)?;
+    join_session_inner(state, &req.session_id, &req.username)
+        .await
+        .map_err(Status::not_found)?;
 
-        let session = state.sessions.get(&req.session_id).unwrap();
-        let existing_peers: Vec<String> = session
+    // Collect mutable state needed for the response and fan-out.
+    let (existing_peers, host, senders) = {
+        let inner = session.inner.lock().await;
+        let existing_peers: Vec<String> = inner
             .members
             .iter()
             .filter(|m| *m != &req.username)
             .cloned()
             .collect();
-        (
-            session.id.clone(),
-            session.name.clone(),
-            session.is_public,
-            session.max_members,
-            existing_peers,
-            session.host.clone(),
-            state.session_update_tx.clone(),
-        )
+        let senders: Vec<_> = inner.signal_senders.values().cloned().collect();
+        (existing_peers, inner.host.clone(), senders)
     };
 
-    if is_public {
-        notify_sessions_changed(&update_tx);
+    if session.is_public {
+        notify_sessions_changed(&state.session_update_tx);
     }
 
-    // Fan-out MemberJoined to all members who already have a signal stream open.
-    // The joiner's own stream isn't registered yet (they open it after this RPC
-    // returns), so all current senders are for the pre-existing members.
-    {
-        let state = state.lock().unwrap();
-        if let Some(session) = state.sessions.get(&session_id) {
-            let sig = Signal {
-                from_user: req.username.clone(),
-                to_user: String::new(),
-                session_id: session_id.clone(),
-                kind: SignalKind::MemberJoined as i32,
-                payload: req.username.clone(),
-            };
-            for tx in session.signal_senders.values() {
-                let _ = tx.send(sig.clone());
-            }
-        }
+    // Fan-out MemberJoined to peers who already have a signal stream open.
+    // The joiner's own stream isn't registered yet (opened after this RPC returns).
+    let sig = Arc::new(Signal {
+        from_user: req.username.clone(),
+        to_user: String::new(),
+        session_id: session.id.clone(),
+        kind: SignalKind::MemberJoined as i32,
+        payload: req.username.clone(),
+    });
+    for tx in &senders {
+        let _ = tx.send(Arc::clone(&sig));
     }
 
     println!(
         "[session] {} joined {} ({} existing peer{})",
         req.username,
-        session_id,
+        session.id,
         existing_peers.len(),
         if existing_peers.len() == 1 { "" } else { "s" }
     );
 
     Ok(Response::new(JoinSessionResponse {
-        session_id,
-        session_name,
-        is_public,
-        max_members,
+        session_id: session.id.clone(),
+        session_name: session.name.clone(),
+        is_public: session.is_public,
+        max_members: session.max_members,
         existing_peers,
         host,
     }))
@@ -155,93 +153,48 @@ pub async fn handle_leave_session(
     state: &SharedState,
     req: LeaveSessionRequest,
 ) -> Result<Response<LeaveSessionResponse>, Status> {
-    // Collect signal senders for all members except the leaver BEFORE removing
-    // them, so we can notify them after the member is gone.
-    let (update_tx, leave_senders, host_changed) = {
-        let mut state = state.lock().unwrap();
-        // If the user isn't a member the RPC is a duplicate (e.g. two failing
-        // WebRTC connections both triggered leave on the client side). Return
-        // early so we don't fan-out a second MemberLeft signal.
-        if !state
-            .sessions
-            .get(&req.session_id)
-            .map(|s| s.members.contains(&req.username))
-            .unwrap_or(false)
-        {
-            return Ok(Response::new(LeaveSessionResponse {}));
-        }
-        let was_host = state
-            .sessions
-            .get(&req.session_id)
-            .map(|s| s.host == req.username)
-            .unwrap_or(false);
-        let leave_senders: Vec<_> = state
-            .sessions
-            .get(&req.session_id)
-            .map(|s| {
-                s.signal_senders
-                    .iter()
-                    .filter(|(user, _)| *user != &req.username)
-                    .map(|(_, tx)| tx.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
-        let was_public = state
-            .sessions
-            .get(&req.session_id)
-            .map(|s| s.is_public)
-            .unwrap_or(false);
-        leave_session_inner(&mut *state, &req.session_id, &req.username);
-        // After leave, migrate host if needed and session still has members.
-        let host_changed: Option<(String, Vec<_>)> = if was_host {
-            state.sessions.get_mut(&req.session_id).and_then(|session| {
-                session.members.first().cloned().map(|new_host| {
-                    session.host = new_host.clone();
-                    let senders: Vec<_> = session.signal_senders.values().cloned().collect();
-                    (new_host, senders)
-                })
-            })
-        } else {
-            None
-        };
-        (
-            was_public.then(|| state.session_update_tx.clone()),
-            leave_senders,
-            host_changed,
-        )
+    // Atomic remove: first caller wins, duplicate (e.g. two WebRTC failures both
+    // triggering leave) gets None and returns immediately.
+    let Some(LeaveInfo {
+        senders,
+        is_public,
+        new_host,
+    }) = leave_session_inner(state, &req.session_id, &req.username).await
+    else {
+        return Ok(Response::new(LeaveSessionResponse {}));
     };
 
-    if let Some(tx) = update_tx {
-        notify_sessions_changed(&tx);
+    if is_public {
+        notify_sessions_changed(&state.session_update_tx);
     }
 
-    // Fan-out MemberLeft to remaining members.
-    let sig = Signal {
+    // Fan-out MemberLeft to remaining peers.
+    let sig = Arc::new(Signal {
         from_user: req.username.clone(),
         to_user: String::new(),
         session_id: req.session_id.clone(),
         kind: SignalKind::MemberLeft as i32,
         payload: req.username.clone(),
-    };
-    for tx in &leave_senders {
-        let _ = tx.send(sig.clone());
+    });
+    for tx in &senders {
+        let _ = tx.send(Arc::clone(&sig));
     }
 
     // Fan-out HostChanged if the host migrated.
-    if let Some((new_host, host_senders)) = host_changed {
-        let host_sig = Signal {
+    if let Some((new_host_name, host_senders)) = new_host {
+        let host_sig = Arc::new(Signal {
             from_user: String::new(),
             to_user: String::new(),
             session_id: req.session_id.clone(),
             kind: SignalKind::HostChanged as i32,
-            payload: new_host.clone(),
-        };
-        for tx in host_senders {
-            let _ = tx.send(host_sig.clone());
+            payload: new_host_name.clone(),
+        });
+        for tx in &host_senders {
+            let _ = tx.send(Arc::clone(&host_sig));
         }
         println!(
             "[session] host of {} migrated to {}",
-            req.session_id, new_host
+            req.session_id, new_host_name
         );
     }
 
@@ -253,12 +206,12 @@ pub async fn handle_get_members(
     state: &SharedState,
     req: GetMembersRequest,
 ) -> Result<Response<GetMembersResponse>, Status> {
-    let state = state.lock().unwrap();
     let session = state
         .sessions
         .get(&req.session_id)
-        .ok_or_else(|| Status::not_found("Session not found"))?;
-    Ok(Response::new(GetMembersResponse {
-        members: session.members.clone(),
-    }))
+        .ok_or_else(|| Status::not_found("Session not found"))?
+        .value()
+        .clone();
+    let members = session.inner.lock().await.members.iter().cloned().collect();
+    Ok(Response::new(GetMembersResponse { members }))
 }

@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tonic::{Request, Response, Status, transport::Server};
@@ -37,7 +37,7 @@ impl Weyvelength for WeyvelengthService {
         &self,
         _request: Request<GetServerInfoRequest>,
     ) -> Result<Response<GetServerInfoResponse>, Status> {
-        let state = self.state.lock().unwrap();
+        let state = &self.state;
         let ice_servers = state
             .ice_servers
             .iter()
@@ -157,7 +157,7 @@ pub async fn run(
     motd: String,
     ice_servers: Vec<IceServerConfig>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let state = Arc::new(Mutex::new(ServerState::new(server_name, motd, ice_servers)));
+    let state = Arc::new(ServerState::new(server_name, motd, ice_servers));
     let service = WeyvelengthService { state };
 
     println!("Weyvelength gRPC server listening on {addr}");

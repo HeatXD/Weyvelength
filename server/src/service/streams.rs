@@ -3,7 +3,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tonic::{Response, Status};
 
 use crate::codegen::weyvelength::{
-    ChatMessage, GlobalMembersEvent, SessionInfo, SessionsUpdatedEvent, StreamGlobalMembersRequest,
+    ChatMessage, GlobalMembersEvent, SessionsUpdatedEvent, StreamGlobalMembersRequest,
     StreamMessagesRequest, StreamSessionUpdatesRequest,
 };
 use crate::state::{GLOBAL_SESSION_ID, SharedState};
@@ -22,36 +22,36 @@ pub async fn handle_stream_messages(
     let username = req.username.clone();
     let is_global = session_id == GLOBAL_SESSION_ID;
 
-    let (broadcast_rx, global_members_tx, newly_added) = {
-        let mut state = state.lock().unwrap();
-        let newly_added = if is_global {
-            let ref_count = state
-                .global_stream_refs
-                .entry(username.clone())
-                .or_insert(0);
-            *ref_count += 1;
-            if *ref_count == 1 {
-                let global = state.sessions.get_mut(GLOBAL_SESSION_ID).unwrap();
-                global.members.push(username.clone());
-                true
-            } else {
-                false
+    // Manage global member tracking first (before subscribing to the broadcast).
+    let newly_added = if is_global {
+        let mut entry = state
+            .global_stream_refs
+            .entry(username.clone())
+            .or_insert(0);
+        *entry += 1;
+        let first = *entry == 1;
+        drop(entry); // release shard lock before the next .await
+        if first {
+            if let Some(global) = state.sessions.get(GLOBAL_SESSION_ID) {
+                global.inner.lock().await.members.insert(username.clone());
             }
-        } else {
-            false
-        };
-        let rx = state
-            .sessions
-            .get(&session_id)
-            .ok_or_else(|| Status::not_found("Session not found"))?
-            .tx
-            .subscribe();
-        (rx, state.global_members_tx.clone(), newly_added)
+        }
+        first
+    } else {
+        false
     };
+
+    // Subscribe to the session's broadcast channel (shard lock held only for the subscribe call).
+    let broadcast_rx = state
+        .sessions
+        .get(&session_id)
+        .ok_or_else(|| Status::not_found("Session not found"))?
+        .tx
+        .subscribe();
 
     if newly_added {
         println!("[global] {} connected", username);
-        let _ = global_members_tx.send(());
+        let _ = state.global_members_tx.send(());
     }
 
     let (tx, rx) = mpsc::unbounded_channel::<Result<ChatMessage, Status>>();
@@ -75,29 +75,27 @@ pub async fn handle_stream_messages(
             }
         };
 
-        if client_disconnected {
-            if is_global {
-                let mut state = state_clone.lock().unwrap();
-                let remove = {
-                    let ref_count = state
-                        .global_stream_refs
-                        .entry(username.clone())
-                        .or_insert(0);
-                    if *ref_count > 0 {
-                        *ref_count -= 1;
-                    }
-                    *ref_count == 0
-                };
-                if remove {
-                    state.global_stream_refs.remove(&username);
-                    let global = state.sessions.get_mut(GLOBAL_SESSION_ID).unwrap();
-                    global.members.retain(|m| m != &username);
-                    let _ = state.global_members_tx.send(());
-                    println!("[global] {} disconnected", username);
-                }
+        if client_disconnected && is_global {
+            // Decrement ref count; remove from global.members when it reaches zero.
+            let mut entry = state_clone
+                .global_stream_refs
+                .entry(username.clone())
+                .or_insert(0);
+            if *entry > 0 {
+                *entry -= 1;
             }
-            // Non-global: no implicit leave. Lifecycle managed by JoinSession/LeaveSession RPCs.
+            let should_remove = *entry == 0;
+            drop(entry); // release shard lock before the next .await
+            if should_remove {
+                state_clone.global_stream_refs.remove(&username);
+                if let Some(global) = state_clone.sessions.get(GLOBAL_SESSION_ID) {
+                    global.inner.lock().await.members.remove(&username);
+                }
+                let _ = state_clone.global_members_tx.send(());
+                println!("[global] {} disconnected", username);
+            }
         }
+        // Non-global: no implicit leave. Lifecycle managed by JoinSession/LeaveSession.
     });
 
     Ok(Response::new(UnboundedReceiverStream::new(rx)))
@@ -107,19 +105,12 @@ pub async fn handle_stream_session_updates(
     state: &SharedState,
     _req: StreamSessionUpdatesRequest,
 ) -> Result<Response<SessionUpdatesStream>, Status> {
-    let update_rx = {
-        let state = state.lock().unwrap();
-        state.session_update_tx.subscribe()
-    };
-
+    let update_rx = state.session_update_tx.subscribe();
     let (tx, rx) = mpsc::unbounded_channel::<Result<SessionsUpdatedEvent, Status>>();
     let state_clone = state.clone();
 
     tokio::spawn(async move {
-        let initial = {
-            let state = state_clone.lock().unwrap();
-            public_sessions(&state)
-        };
+        let initial = public_sessions(&state_clone).await;
         if tx
             .send(Ok(SessionsUpdatedEvent { sessions: initial }))
             .is_err()
@@ -133,10 +124,7 @@ pub async fn handle_stream_session_updates(
                 _ = tx.closed() => break,
                 result = update_rx.recv() => match result {
                     Ok(()) => {
-                        let sessions: Vec<SessionInfo> = {
-                            let state = state_clone.lock().unwrap();
-                            public_sessions(&state)
-                        };
+                        let sessions = public_sessions(&state_clone).await;
                         if tx.send(Ok(SessionsUpdatedEvent { sessions })).is_err() {
                             break;
                         }
@@ -155,15 +143,20 @@ pub async fn handle_stream_global_members(
     state: &SharedState,
     _req: StreamGlobalMembersRequest,
 ) -> Result<Response<GlobalMembersStream>, Status> {
-    let (members_rx, initial) = {
-        let state = state.lock().unwrap();
-        let rx = state.global_members_tx.subscribe();
-        let members = state
-            .sessions
-            .get(GLOBAL_SESSION_ID)
-            .map(|s| s.members.clone())
-            .unwrap_or_default();
-        (rx, members)
+    // Subscribe first so we don't miss an update between reading initial state
+    // and starting the loop.
+    let members_rx = state.global_members_tx.subscribe();
+
+    let initial = match state.sessions.get(GLOBAL_SESSION_ID) {
+        Some(global) => global
+            .inner
+            .lock()
+            .await
+            .members
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>(),
+        None => vec![],
     };
 
     let (tx, rx) = mpsc::unbounded_channel::<Result<GlobalMembersEvent, Status>>();
@@ -183,13 +176,16 @@ pub async fn handle_stream_global_members(
                 _ = tx.closed() => break,
                 result = members_rx.recv() => match result {
                     Ok(()) => {
-                        let members = {
-                            let state = state_clone.lock().unwrap();
-                            state
-                                .sessions
-                                .get(GLOBAL_SESSION_ID)
-                                .map(|s| s.members.clone())
-                                .unwrap_or_default()
+                        let members = match state_clone.sessions.get(GLOBAL_SESSION_ID) {
+                            Some(global) => global
+                                .inner
+                                .lock()
+                                .await
+                                .members
+                                .iter()
+                                .cloned()
+                                .collect::<Vec<_>>(),
+                            None => vec![],
                         };
                         if tx.send(Ok(GlobalMembersEvent { members })).is_err() {
                             break;
