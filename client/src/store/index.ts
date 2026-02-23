@@ -25,6 +25,20 @@ function teardownHandle(h: StreamHandle): void {
   }
 }
 
+/** Stop a backend stream, re-register the Tauri event listener, then restart the stream. */
+async function restartStream<T>(
+  handle: StreamHandle,
+  stopCommand: string,
+  eventName: string,
+  startCommand: string,
+  callback: (payload: T) => void,
+): Promise<void> {
+  teardownHandle(handle);
+  await invoke(stopCommand);
+  handle.unlisten = await listen<T>(eventName, (e) => callback(e.payload));
+  await invoke(startCommand);
+}
+
 export interface AppStore {
   servers: () => SavedServer[];
   activeServerId: () => string | null;
@@ -140,22 +154,22 @@ export function createAppStore(): AppStore {
       }
 
       // Session-list push stream.
-      teardownHandle(sessionUpdatesHandle);
-      await invoke("stop_session_updates_stream");
-      sessionUpdatesHandle.unlisten = await listen<SessionInfo[]>(
+      await restartStream<SessionInfo[]>(
+        sessionUpdatesHandle,
+        "stop_session_updates_stream",
         "session-update",
-        (e) => session.setSessions(e.payload),
+        "start_session_updates_stream",
+        (p) => session.setSessions(p),
       );
-      await invoke("start_session_updates_stream");
 
       // Global presence (online member list) stream.
-      teardownHandle(globalMembersHandle);
-      await invoke("stop_global_members_stream");
-      globalMembersHandle.unlisten = await listen<string[]>(
+      await restartStream<string[]>(
+        globalMembersHandle,
+        "stop_global_members_stream",
         "global-members",
-        (e) => session.setGlobalMembers(e.payload),
+        "start_global_members_stream",
+        (p) => session.setGlobalMembers(p),
       );
-      await invoke("start_global_members_stream");
 
       // Global chat stream.
       await manageStream(
@@ -187,7 +201,9 @@ export function createAppStore(): AppStore {
     if (session.currentSession()) {
       try {
         await invoke("leave_session_webrtc");
-      } catch {}
+      } catch {
+        // WebRTC resources may already be released; not an error during disconnect.
+      }
     }
     for (const h of [
       messaging.globalHandle,
@@ -289,7 +305,12 @@ export function createAppStore(): AppStore {
             next[idx] = { ...next[idx], content: `${peer} joined` };
             return next;
           });
-        } else if (state === "failed" && !failedPeers.has(peer) && !leftPeers.has(peer) && session.currentSession()) {
+        } else if (
+          state === "failed" &&
+          !failedPeers.has(peer) &&
+          !leftPeers.has(peer) &&
+          session.currentSession()
+        ) {
           failedPeers.add(peer);
           // Only auto-leave if we have no other open peer connections — i.e. this
           // failure leaves us completely isolated. If we're still connected to
@@ -298,9 +319,11 @@ export function createAppStore(): AppStore {
             ([p, s]) => p !== peer && s === "open",
           );
           if (!isOwner && !hasOtherOpen) {
-            leaveSession().then(() => {
-              ui.setError(`Could not connect to ${peer}. Leaving session.`);
-            }).catch(() => {});
+            leaveSession()
+              .then(() => {
+                ui.setError(`Could not connect to ${peer}. Leaving session.`);
+              })
+              .catch(() => {});
           } else {
             ui.setError(`Could not connect to ${peer}.`);
           }
@@ -312,61 +335,69 @@ export function createAppStore(): AppStore {
     // private sessions alike.  Refresh the member list and inject a system message.
     teardownHandle(memberEventHandle);
     const self = server.username();
-    memberEventHandle.unlisten = await listen<{
+
+    function handleMemberEvent(payload: {
       username: string;
       joined: boolean;
-    }>("member-event", (e) => {
-      const { username, joined } = e.payload;
-      if (username !== self) {
-        if (joined) {
-          connectingPeers.add(username);
+    }): void {
+      const { username, joined } = payload;
+      if (username === self) return;
+
+      if (joined) {
+        connectingPeers.add(username);
+        messaging.setSessionMessages((prev) => [
+          ...prev,
+          {
+            username: "",
+            content: `${username} is connecting…`,
+            timestamp: Date.now(),
+            system: true,
+          },
+        ]);
+      } else {
+        // Peer left — close our side of the WebRTC connection.
+        invoke("close_peer_connection", { peer: username }).catch(() => {});
+        if (connectingPeers.has(username)) {
+          // Never finished connecting; replace the "connecting…" message in-place.
+          connectingPeers.delete(username);
+          messaging.setSessionMessages((prev) => {
+            const idx = prev.findLastIndex(
+              (m) => m.system && m.content === `${username} is connecting…`,
+            );
+            if (idx === -1)
+              return [
+                ...prev,
+                {
+                  username: "",
+                  content: `${username} left`,
+                  timestamp: Date.now(),
+                  system: true,
+                },
+              ];
+            const next = [...prev];
+            next[idx] = { ...next[idx], content: `${username} left` };
+            return next;
+          });
+        } else {
+          leftPeers.add(username);
           messaging.setSessionMessages((prev) => [
             ...prev,
             {
               username: "",
-              content: `${username} is connecting…`,
+              content: `${username} left`,
               timestamp: Date.now(),
               system: true,
             },
           ]);
-        } else {
-          invoke("close_peer_connection", { peer: username }).catch(() => {});
-          if (connectingPeers.has(username)) {
-            connectingPeers.delete(username);
-            messaging.setSessionMessages((prev) => {
-              const idx = prev.findLastIndex(
-                (m) => m.system && m.content === `${username} is connecting…`,
-              );
-              if (idx === -1)
-                return [
-                  ...prev,
-                  {
-                    username: "",
-                    content: `${username} left`,
-                    timestamp: Date.now(),
-                    system: true,
-                  },
-                ];
-              const next = [...prev];
-              next[idx] = { ...next[idx], content: `${username} left` };
-              return next;
-            });
-          } else {
-            leftPeers.add(username);
-            messaging.setSessionMessages((prev) => [
-              ...prev,
-              {
-                username: "",
-                content: `${username} left`,
-                timestamp: Date.now(),
-                system: true,
-              },
-            ]);
-          }
         }
       }
       session.fetchMembers(sess.session_id).catch(() => {});
-    });
+    }
+
+    memberEventHandle.unlisten = await listen<{
+      username: string;
+      joined: boolean;
+    }>("member-event", (e) => handleMemberEvent(e.payload));
 
     // host-changed: server signals host migration
     teardownHandle(hostChangedHandle);
@@ -399,8 +430,8 @@ export function createAppStore(): AppStore {
     isPublic: boolean,
     maxMembers: number,
   ): Promise<void> {
-    await withJoinGuard(
-      () => invoke<SessionPayload>("create_session", { isPublic, maxMembers }),
+    await withJoinGuard(() =>
+      invoke<SessionPayload>("create_session", { isPublic, maxMembers }),
     );
   }
 

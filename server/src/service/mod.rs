@@ -16,6 +16,17 @@ use crate::codegen::weyvelength::{
 };
 use crate::state::{IceServerConfig, ServerState, SharedState};
 
+impl From<&IceServerConfig> for IceServer {
+    fn from(s: &IceServerConfig) -> Self {
+        IceServer {
+            url: s.url.clone(),
+            username: s.username.clone(),
+            credential: s.credential.clone(),
+            name: s.name.clone(),
+        }
+    }
+}
+
 mod helpers;
 mod messaging;
 mod sessions;
@@ -38,16 +49,7 @@ impl Weyvelength for WeyvelengthService {
         _request: Request<GetServerInfoRequest>,
     ) -> Result<Response<GetServerInfoResponse>, Status> {
         let state = &self.state;
-        let ice_servers = state
-            .ice_servers
-            .iter()
-            .map(|s| IceServer {
-                url: s.url.clone(),
-                username: s.username.clone(),
-                credential: s.credential.clone(),
-                name: s.name.clone(),
-            })
-            .collect();
+        let ice_servers = state.ice_servers.iter().map(IceServer::from).collect();
         Ok(Response::new(GetServerInfoResponse {
             server_name: state.server_name.clone(),
             motd: state.motd.clone(),

@@ -7,7 +7,7 @@ use tonic::{Response, Status};
 use crate::codegen::weyvelength::{
     CreateSessionRequest, CreateSessionResponse, GetMembersRequest, GetMembersResponse,
     JoinSessionRequest, JoinSessionResponse, LeaveSessionRequest, LeaveSessionResponse,
-    ListSessionsRequest, ListSessionsResponse, Signal, SignalKind,
+    ListSessionsRequest, ListSessionsResponse, SignalKind,
 };
 use crate::session::{LeaveInfo, generate_lobby_code, join_session_inner, leave_session_inner};
 use crate::state::{
@@ -15,7 +15,7 @@ use crate::state::{
     SharedState,
 };
 
-use super::helpers::{notify_sessions_changed, public_sessions};
+use super::helpers::{fanout_signal, notify_sessions_changed, public_sessions};
 
 pub async fn handle_list_sessions(
     state: &SharedState,
@@ -120,16 +120,13 @@ pub async fn handle_join_session(
 
     // Fan-out MemberJoined to peers who already have a signal stream open.
     // The joiner's own stream isn't registered yet (opened after this RPC returns).
-    let sig = Arc::new(Signal {
-        from_user: req.username.clone(),
-        to_user: String::new(),
-        session_id: session.id.clone(),
-        kind: SignalKind::MemberJoined as i32,
-        payload: req.username.clone(),
-    });
-    for tx in &senders {
-        let _ = tx.send(Arc::clone(&sig));
-    }
+    fanout_signal(
+        &senders,
+        SignalKind::MemberJoined,
+        &req.username,
+        &session.id,
+        &req.username,
+    );
 
     println!(
         "[session] {} joined {} ({} existing peer{})",
@@ -169,29 +166,23 @@ pub async fn handle_leave_session(
     }
 
     // Fan-out MemberLeft to remaining peers.
-    let sig = Arc::new(Signal {
-        from_user: req.username.clone(),
-        to_user: String::new(),
-        session_id: req.session_id.clone(),
-        kind: SignalKind::MemberLeft as i32,
-        payload: req.username.clone(),
-    });
-    for tx in &senders {
-        let _ = tx.send(Arc::clone(&sig));
-    }
+    fanout_signal(
+        &senders,
+        SignalKind::MemberLeft,
+        &req.username,
+        &req.session_id,
+        &req.username,
+    );
 
     // Fan-out HostChanged if the host migrated.
     if let Some((new_host_name, host_senders)) = new_host {
-        let host_sig = Arc::new(Signal {
-            from_user: String::new(),
-            to_user: String::new(),
-            session_id: req.session_id.clone(),
-            kind: SignalKind::HostChanged as i32,
-            payload: new_host_name.clone(),
-        });
-        for tx in &host_senders {
-            let _ = tx.send(Arc::clone(&host_sig));
-        }
+        fanout_signal(
+            &host_senders,
+            SignalKind::HostChanged,
+            "",
+            &req.session_id,
+            &new_host_name,
+        );
         println!(
             "[session] host of {} migrated to {}",
             req.session_id, new_host_name

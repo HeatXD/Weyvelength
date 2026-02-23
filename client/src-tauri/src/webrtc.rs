@@ -27,11 +27,23 @@ use crate::state::{AppState, IceServerEntry, PeerEntry};
 
 // ── wire format ───────────────────────────────────────────────────────────────
 
+/// WebRTC peer connection state forwarded to the frontend via the `peer-state` event.
+/// Serialises as a lowercase string (e.g. `"checking"`, `"open"`, `"failed"`).
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum PeerState {
+    Checking,
+    Connected,
+    Open,
+    Disconnected,
+    Failed,
+    Closed,
+}
+
 #[derive(Serialize, Clone)]
 pub struct PeerStatePayload {
     pub peer: String,
-    /// One of: "checking" | "connected" | "open" | "disconnected" | "failed" | "closed"
-    pub state: String,
+    pub state: PeerState,
 }
 
 #[derive(Serialize, Clone)]
@@ -107,22 +119,18 @@ pub async fn create_peer_connection(
             move |state: RTCPeerConnectionState| {
                 let app3 = app2.clone();
                 let peer = remote.clone();
-                let state_str = match state {
-                    RTCPeerConnectionState::Connecting => "checking",
-                    RTCPeerConnectionState::Connected => "connected",
-                    RTCPeerConnectionState::Disconnected => "disconnected",
-                    RTCPeerConnectionState::Failed => "failed",
-                    RTCPeerConnectionState::Closed => "closed",
-                    _ => "",
-                }
-                .to_string();
+                let maybe_state = match state {
+                    RTCPeerConnectionState::Connecting => Some(PeerState::Checking),
+                    RTCPeerConnectionState::Connected => Some(PeerState::Connected),
+                    RTCPeerConnectionState::Disconnected => Some(PeerState::Disconnected),
+                    RTCPeerConnectionState::Failed => Some(PeerState::Failed),
+                    RTCPeerConnectionState::Closed => Some(PeerState::Closed),
+                    _ => None,
+                };
                 Box::pin(async move {
                     eprintln!("[WebRTC] {peer}: {state:?}");
-                    if !state_str.is_empty() {
-                        let _ = app3.emit(
-                            "peer-state",
-                            PeerStatePayload { peer, state: state_str },
-                        );
+                    if let Some(peer_state) = maybe_state {
+                        let _ = app3.emit("peer-state", PeerStatePayload { peer, state: peer_state });
                     }
                 })
             },
@@ -245,7 +253,7 @@ fn register_game_dc_callbacks(dc: &Arc<RTCDataChannel>, app: &AppHandle, remote:
         let app3 = app2.clone();
         eprintln!("[WebRTC] game channel open with {peer2}");
         Box::pin(async move {
-            let _ = app3.emit("peer-state", PeerStatePayload { peer: peer2, state: "open".to_string() });
+            let _ = app3.emit("peer-state", PeerStatePayload { peer: peer2, state: PeerState::Open });
         })
     }));
 

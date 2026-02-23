@@ -39,7 +39,7 @@ pub async fn send_session_message(
     let session_id = state
         .current_session_id
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
+        .unwrap()
         .clone()
         .ok_or_else(|| "Not in a session".to_string())?;
     send(&state, session_id, content).await

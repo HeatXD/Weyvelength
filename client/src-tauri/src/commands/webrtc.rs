@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tonic::transport::Channel;
 use tokio::sync::oneshot;
@@ -21,8 +22,8 @@ pub async fn join_session_webrtc(
     existing_peers: Vec<String>,
     force_relay: bool,
 ) -> Result<(), String> {
-    *state.force_relay.lock().unwrap_or_else(|e| e.into_inner()) = force_relay;
-    *state.current_session_id.lock().unwrap_or_else(|e| e.into_inner()) = Some(session_id.clone());
+    state.force_relay.store(force_relay, Ordering::Relaxed);
+    *state.current_session_id.lock().unwrap() = Some(session_id.clone());
     state.close_all_peer_connections().await;
 
     // Open the signal stream BEFORE sending any offers so incoming answers
@@ -54,11 +55,7 @@ pub async fn join_session_webrtc(
         .await
         {
             Ok(entry) => {
-                state
-                    .peer_connections
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .insert(peer, entry);
+                state.peer_connections.lock().unwrap().insert(peer, entry);
             }
             Err(e) => eprintln!("[WebRTC] create_peer_connection: {e}"),
         }
@@ -72,11 +69,7 @@ pub async fn close_peer_connection(
     state: State<'_, AppState>,
     peer: String,
 ) -> Result<(), String> {
-    let entry = state
-        .peer_connections
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .remove(&peer);
+    let entry = state.peer_connections.lock().unwrap().remove(&peer);
     if let Some(entry) = entry {
         let _ = entry.pc.close().await;
     }
@@ -87,7 +80,7 @@ pub async fn close_peer_connection(
 pub async fn leave_session_webrtc(state: State<'_, AppState>) -> Result<(), String> {
     state.cancel_stream(StreamKind::Signals);
     state.close_all_peer_connections().await;
-    *state.current_session_id.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *state.current_session_id.lock().unwrap() = None;
     Ok(())
 }
 
@@ -139,16 +132,8 @@ async fn handle_incoming_signal(app: AppHandle, signal: Signal) {
             Ok(u) => u,
             Err(_) => return,
         };
-        let session_id = match state
-            .current_session_id
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-        {
-            Some(s) => s,
-            None => return,
-        };
-        let force_relay = *state.force_relay.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(session_id) = state.current_session_id.lock().unwrap().clone() else { return };
+        let force_relay = state.force_relay.load(Ordering::Relaxed);
 
         match create_peer_connection(
             app.clone(),
@@ -163,21 +148,13 @@ async fn handle_incoming_signal(app: AppHandle, signal: Signal) {
         .await
         {
             Ok(entry) => {
-                state
-                    .peer_connections
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .insert(from, entry);
+                state.peer_connections.lock().unwrap().insert(from, entry);
             }
             Err(e) => eprintln!("[WebRTC] answerer create_peer_connection: {e}"),
         }
     } else if signal.kind == SignalKind::SdpAnswer as i32 {
         // Route answer to the existing peer connection.
-        let pc = {
-            let map = state.peer_connections.lock().unwrap_or_else(|e| e.into_inner());
-            map.get(&from).map(|e| e.pc.clone())
-        };
-        if let Some(pc) = pc {
+        if let Some(pc) = state.get_peer_connection(&from) {
             match RTCSessionDescription::answer(signal.payload) {
                 Ok(sdp) => {
                     eprintln!("[ICE] received answer from {from}");
@@ -190,11 +167,7 @@ async fn handle_incoming_signal(app: AppHandle, signal: Signal) {
         }
     } else if signal.kind == SignalKind::IceCandidate as i32 {
         // Add a trickled ICE candidate to the existing peer connection.
-        let pc = {
-            let map = state.peer_connections.lock().unwrap_or_else(|e| e.into_inner());
-            map.get(&from).map(|e| e.pc.clone())
-        };
-        if let Some(pc) = pc {
+        if let Some(pc) = state.get_peer_connection(&from) {
             match serde_json::from_str::<RTCIceCandidateInit>(&signal.payload) {
                 Ok(init) => {
                     if let Err(e) = pc.add_ice_candidate(init).await {

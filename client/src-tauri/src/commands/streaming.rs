@@ -96,13 +96,7 @@ fn spawn_session_updates_task(
                         let sessions: Vec<SessionInfoPayload> = m
                             .sessions
                             .into_iter()
-                            .map(|s| SessionInfoPayload {
-                                id: s.id,
-                                name: s.name,
-                                member_count: s.member_count,
-                                is_public: s.is_public,
-                                max_members: s.max_members,
-                            })
+                            .map(SessionInfoPayload::from)
                             .collect();
                         let _ = app.emit("session-update", sessions);
                     }

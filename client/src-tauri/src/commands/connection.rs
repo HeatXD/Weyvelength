@@ -33,8 +33,8 @@ pub async fn connect(
         .connect()
         .await
         .map_err(|e| e.to_string())?;
-    *state.channel.lock().map_err(|_| "Channel lock poisoned".to_string())? = Some(channel);
-    *state.username.lock().map_err(|_| "Username lock poisoned".to_string())? = Some(username);
+    *state.channel.write().unwrap() = Some(channel);
+    *state.username.write().unwrap() = Some(username);
     Ok(())
 }
 
@@ -42,9 +42,9 @@ pub async fn connect(
 pub async fn disconnect(state: State<'_, AppState>) -> Result<(), String> {
     state.cancel_all_streams();
     state.close_all_peer_connections().await;
-    *state.current_session_id.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    *state.channel.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    *state.username.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *state.current_session_id.lock().unwrap() = None;
+    *state.channel.write().unwrap() = None;
+    *state.username.write().unwrap() = None;
     Ok(())
 }
 
@@ -57,28 +57,27 @@ pub async fn get_server_info(state: State<'_, AppState>) -> Result<ServerInfoPay
         .map_err(|e| e.to_string())?;
     let r = response.into_inner();
 
-    let ice_entries: Vec<IceServerEntry> = r
-        .ice_servers
-        .iter()
-        .map(|s| IceServerEntry {
-            url: s.url.clone(),
-            username: s.username.clone(),
-            credential: s.credential.clone(),
-            name: s.name.clone(),
-        })
-        .collect();
-    *state.ice_servers.lock().unwrap_or_else(|e| e.into_inner()) = ice_entries;
-
-    let ice_servers = r
+    // Single pass: clone fields into IceServerEntry for state, move originals into IceServerPayload.
+    let (ice_entries, ice_servers): (Vec<IceServerEntry>, Vec<IceServerPayload>) = r
         .ice_servers
         .into_iter()
-        .map(|s| IceServerPayload {
-            url: s.url,
-            username: s.username,
-            credential: s.credential,
-            name: s.name,
+        .map(|s| {
+            let entry = IceServerEntry {
+                url: s.url.clone(),
+                username: s.username.clone(),
+                credential: s.credential.clone(),
+                name: s.name.clone(),
+            };
+            let payload = IceServerPayload {
+                url: s.url,
+                username: s.username,
+                credential: s.credential,
+                name: s.name,
+            };
+            (entry, payload)
         })
-        .collect();
+        .unzip();
+    *state.ice_servers.write().unwrap() = ice_entries;
 
     Ok(ServerInfoPayload {
         server_name: r.server_name,
@@ -93,6 +92,6 @@ pub async fn set_turn_server(
     state: State<'_, AppState>,
     name: Option<String>,
 ) -> Result<(), String> {
-    *state.selected_turn.lock().unwrap_or_else(|e| e.into_inner()) = name;
+    *state.selected_turn.write().unwrap() = name;
     Ok(())
 }

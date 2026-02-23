@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 
-use crate::codegen::weyvelength::SessionInfo;
+use crate::codegen::weyvelength::{SessionInfo, Signal, SignalKind};
 use crate::state::{GLOBAL_SESSION_ID, ServerState, SessionData};
 
 /// Build the current list of public (non-global) sessions.
@@ -33,5 +33,28 @@ pub async fn public_sessions(state: &ServerState) -> Vec<SessionInfo> {
 /// Notify all `StreamSessionUpdates` subscribers that the session list changed.
 /// Call this **after** releasing any locks.
 pub fn notify_sessions_changed(tx: &broadcast::Sender<()>) {
+    // Subscriber may have dropped; not an error.
     let _ = tx.send(());
+}
+
+/// Build a single `Signal` and fan it out to all senders in `senders`.
+/// Ignores send errors — a closed receiver just means the peer disconnected.
+pub fn fanout_signal(
+    senders: &[mpsc::UnboundedSender<Arc<Signal>>],
+    kind: SignalKind,
+    from: &str,
+    session_id: &str,
+    payload: &str,
+) {
+    let sig = Arc::new(Signal {
+        from_user: from.to_owned(),
+        to_user: String::new(),
+        session_id: session_id.to_owned(),
+        kind: kind as i32,
+        payload: payload.to_owned(),
+    });
+    for tx in senders {
+        // Subscriber may have dropped; not an error.
+        let _ = tx.send(Arc::clone(&sig));
+    }
 }

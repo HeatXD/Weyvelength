@@ -214,6 +214,7 @@ input::placeholder {
 .modal-title {
   font-size: 1.25rem;
   font-weight: 600;
+  text-align: center;
 }
 
 .modal-actions {
@@ -247,12 +248,102 @@ input::placeholder {
   color: var(--error);
 }
 
-/* Session size stepper */
+/* ── Form helpers ──────────────────────────────────────────────────────────── */
+
 .form-label {
   font-size: 0.875rem;
   color: var(--text-muted);
   font-weight: 500;
 }
+
+.form-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Two-column label | control grid used by CreateSessionModal */
+.session-form {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 1.25rem;
+  row-gap: 1rem;
+}
+
+.session-form .form-label {
+  align-self: start;
+  padding-top: 0.45rem; /* optical alignment with the top of the adjacent control */
+}
+
+.form-control-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+/* ── Visibility segmented toggle ───────────────────────────────────────────── */
+
+.vis-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.vis-btn {
+  flex: 1;
+  padding: 0.5rem 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.vis-btn + .vis-btn {
+  border-left: 1px solid var(--border);
+}
+
+/* Both buttons always show their color; inactive = dimmer, active = full. */
+.vis-btn:first-child {
+  border-radius: 0.4rem 0 0 0.4rem;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: color-mix(in srgb, var(--accent) 60%, var(--text-muted));
+}
+
+.vis-btn:last-child {
+  border-radius: 0 0.4rem 0.4rem 0;
+  background: color-mix(in srgb, var(--private) 10%, transparent);
+  color: color-mix(in srgb, var(--private) 60%, var(--text-muted));
+}
+
+.vis-btn:first-child:hover:not(.vis-btn-public) {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: color-mix(in srgb, var(--accent) 80%, var(--text-muted));
+}
+
+.vis-btn:last-child:hover:not(.vis-btn-private) {
+  background: color-mix(in srgb, var(--private) 18%, transparent);
+  color: color-mix(in srgb, var(--private) 80%, var(--text-muted));
+}
+
+.vis-btn-public {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.vis-btn-private {
+  background: color-mix(in srgb, var(--private) 35%, transparent);
+  color: var(--private);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1.5px var(--private);
+}
+
+/* ── Session size stepper ──────────────────────────────────────────────────── */
 
 .size-stepper {
   display: flex;
@@ -270,10 +361,11 @@ input::placeholder {
 
 .stepper-value {
   font-size: 1.125rem;
-  font-weight: 600;
+  font-weight: 700;
   min-width: 2rem;
   text-align: center;
   color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Messages */

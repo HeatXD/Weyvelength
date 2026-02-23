@@ -10,7 +10,7 @@ use crate::codegen::weyvelength::{
 use crate::session::{LeaveInfo, leave_session_inner};
 use crate::state::SharedState;
 
-use super::helpers::notify_sessions_changed;
+use super::helpers::{fanout_signal, notify_sessions_changed};
 
 pub async fn handle_send_signal(
     state: &SharedState,
@@ -58,8 +58,8 @@ pub async fn handle_stream_signals(
     state: &SharedState,
     req: StreamSignalsRequest,
 ) -> Result<Response<SignalsStream>, Status> {
-    let username = req.username.clone();
-    let session_id = req.session_id.clone();
+    let username = req.username;
+    let session_id = req.session_id;
 
     let (bridge_tx, bridge_rx) = mpsc::unbounded_channel::<Arc<Signal>>();
 
@@ -120,29 +120,23 @@ pub async fn handle_stream_signals(
             }
 
             if !senders.is_empty() {
-                let sig = Arc::new(Signal {
-                    from_user: username.clone(),
-                    to_user: String::new(),
-                    session_id: session_id.clone(),
-                    kind: SignalKind::MemberLeft as i32,
-                    payload: username.clone(),
-                });
-                for tx in senders {
-                    let _ = tx.send(Arc::clone(&sig));
-                }
+                fanout_signal(
+                    &senders,
+                    SignalKind::MemberLeft,
+                    &username,
+                    &session_id,
+                    &username,
+                );
             }
 
             if let Some((new_host_name, host_senders)) = new_host {
-                let host_sig = Arc::new(Signal {
-                    from_user: String::new(),
-                    to_user: String::new(),
-                    session_id: session_id.clone(),
-                    kind: SignalKind::HostChanged as i32,
-                    payload: new_host_name.clone(),
-                });
-                for tx in host_senders {
-                    let _ = tx.send(Arc::clone(&host_sig));
-                }
+                fanout_signal(
+                    &host_senders,
+                    SignalKind::HostChanged,
+                    "",
+                    &session_id,
+                    &new_host_name,
+                );
                 println!(
                     "[session] host of {} migrated to {} (implicit)",
                     session_id, new_host_name

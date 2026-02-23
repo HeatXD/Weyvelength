@@ -4,7 +4,7 @@ use tauri::State;
 use crate::grpc::{
     weyvelength::{
         CreateSessionRequest, GetMembersRequest, JoinSessionRequest, LeaveSessionRequest,
-        ListSessionsRequest,
+        ListSessionsRequest, SessionInfo,
     },
     WeyvelengthClient,
 };
@@ -17,6 +17,18 @@ pub struct SessionInfoPayload {
     pub member_count: u32,
     pub is_public: bool,
     pub max_members: u32,
+}
+
+impl From<SessionInfo> for SessionInfoPayload {
+    fn from(s: SessionInfo) -> Self {
+        SessionInfoPayload {
+            id: s.id,
+            name: s.name,
+            member_count: s.member_count,
+            is_public: s.is_public,
+            max_members: s.max_members,
+        }
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -42,13 +54,7 @@ pub async fn list_sessions(
         .into_inner()
         .sessions
         .into_iter()
-        .map(|s| SessionInfoPayload {
-            id: s.id,
-            name: s.name,
-            member_count: s.member_count,
-            is_public: s.is_public,
-            max_members: s.max_members,
-        })
+        .map(SessionInfoPayload::from)
         .collect();
     Ok(sessions)
 }
