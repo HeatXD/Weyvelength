@@ -199,3 +199,28 @@ pub async fn stop_session_updates_stream(state: State<'_, AppState>) -> Result<(
     state.cancel_stream(StreamKind::SessionUpdates);
     Ok(())
 }
+
+#[tauri::command]
+pub async fn start_session_stream(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    let rx = state.reset_stream(StreamKind::SessionMessages);
+    spawn_stream_task(
+        app,
+        state.get_channel()?,
+        session_id,
+        state.get_username()?,
+        "session-message",
+        rx,
+        None,
+    );
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn stop_session_stream(state: State<'_, AppState>) -> Result<(), String> {
+    state.cancel_stream(StreamKind::SessionMessages);
+    Ok(())
+}

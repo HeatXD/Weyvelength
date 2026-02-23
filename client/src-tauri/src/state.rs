@@ -12,6 +12,7 @@ pub enum StreamKind {
     Signals,
     SessionUpdates,
     GlobalMembers,
+    SessionMessages,
 }
 
 #[derive(Clone)]
@@ -25,8 +26,6 @@ pub struct IceServerEntry {
 /// Per-peer state. Call pc.close().await to shut down cleanly.
 pub struct PeerEntry {
     pub pc: Arc<RTCPeerConnection>,
-    /// Reliable, ordered — chat messages (JSON).
-    pub chat_dc: Arc<TokioMutex<Option<Arc<RTCDataChannel>>>>,
     /// Unreliable, unordered — reserved for the UDP-proxy game bridge.
     #[allow(dead_code)]
     pub game_dc: Arc<TokioMutex<Option<Arc<RTCDataChannel>>>>,
@@ -39,6 +38,7 @@ pub struct AppState {
     pub signals_cancel_tx: Mutex<Option<oneshot::Sender<()>>>,
     pub session_updates_cancel_tx: Mutex<Option<oneshot::Sender<()>>>,
     pub global_members_cancel_tx: Mutex<Option<oneshot::Sender<()>>>,
+    pub session_messages_cancel_tx: Mutex<Option<oneshot::Sender<()>>>,
     pub ice_servers: Mutex<Vec<IceServerEntry>>,
     /// Name of the TURN server the user has selected (None = skip TURN, direct only).
     pub selected_turn: Mutex<Option<String>>,
@@ -57,6 +57,7 @@ impl AppState {
             signals_cancel_tx: Mutex::new(None),
             session_updates_cancel_tx: Mutex::new(None),
             global_members_cancel_tx: Mutex::new(None),
+            session_messages_cancel_tx: Mutex::new(None),
             ice_servers: Mutex::new(Vec::new()),
             selected_turn: Mutex::new(None),
             peer_connections: Mutex::new(HashMap::new()),
@@ -87,6 +88,7 @@ impl AppState {
             StreamKind::Signals => &self.signals_cancel_tx,
             StreamKind::SessionUpdates => &self.session_updates_cancel_tx,
             StreamKind::GlobalMembers => &self.global_members_cancel_tx,
+            StreamKind::SessionMessages => &self.session_messages_cancel_tx,
         }
     }
 
@@ -113,6 +115,7 @@ impl AppState {
             StreamKind::Signals,
             StreamKind::SessionUpdates,
             StreamKind::GlobalMembers,
+            StreamKind::SessionMessages,
         ] {
             self.cancel_stream(kind);
         }

@@ -253,7 +253,11 @@ export function createAppStore(): AppStore {
       forceRelay: forceRelay(),
     });
 
-    // session-message: incoming WebRTC data channel messages
+    // Start the gRPC session chat stream (replaces WebRTC chat DC).
+    await invoke("stop_session_stream");
+    await invoke("start_session_stream", { sessionId: sess.session_id });
+
+    // session-message: incoming gRPC session chat messages
     teardownHandle(messaging.sessionHandle);
     messaging.sessionHandle.unlisten = await listen<ChatMessage>(
       "session-message",
@@ -415,8 +419,11 @@ export function createAppStore(): AppStore {
     // handler will see currentSession === null and skip doMemberDiff, avoiding
     // a "session not found" error from fetching a deleted session's member list.
     session.setCurrentSession(null);
-    // Always clean up WebRTC and local state regardless of gRPC success/failure
-    await invoke("leave_session_webrtc").catch(() => {});
+    // Always clean up WebRTC and session stream regardless of gRPC success/failure
+    await Promise.all([
+      invoke("leave_session_webrtc").catch(() => {}),
+      invoke("stop_session_stream").catch(() => {}),
+    ]);
     teardownHandle(messaging.sessionHandle);
     teardownHandle(peerStateHandle);
     teardownHandle(memberEventHandle);

@@ -1,14 +1,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex as TokioMutex;
 use webrtc::{
     api::{setting_engine::SettingEngine, APIBuilder},
     data_channel::{
         data_channel_init::RTCDataChannelInit,
-        data_channel_message::DataChannelMessage as DcMsg,
         RTCDataChannel,
     },
     ice_transport::ice_server::RTCIceServer,
@@ -20,7 +19,6 @@ use webrtc::{
     },
 };
 
-use crate::commands::streaming::ChatMessagePayload;
 use crate::grpc::{
     weyvelength::{SendSignalRequest, Signal, SignalKind},
     WeyvelengthClient,
@@ -28,14 +26,6 @@ use crate::grpc::{
 use crate::state::{AppState, IceServerEntry, PeerEntry};
 
 // ── wire format ───────────────────────────────────────────────────────────────
-
-/// JSON envelope sent over the WebRTC data channel.
-#[derive(Serialize, Deserialize)]
-pub struct DataChannelMessage {
-    pub username: String,
-    pub content: String,
-    pub timestamp: i64,
-}
 
 #[derive(Serialize, Clone)]
 pub struct PeerStatePayload {
@@ -106,8 +96,6 @@ pub async fn create_peer_connection(
     let api = APIBuilder::new().with_setting_engine(se).build();
     let pc = Arc::new(api.new_peer_connection(config).await?);
 
-    let chat_dc_slot: Arc<TokioMutex<Option<Arc<RTCDataChannel>>>> =
-        Arc::new(TokioMutex::new(None));
     let game_dc_slot: Arc<TokioMutex<Option<Arc<RTCDataChannel>>>> =
         Arc::new(TokioMutex::new(None));
 
@@ -188,13 +176,9 @@ pub async fn create_peer_connection(
     };
 
     if is_initiator {
-        // Create both channels before the offer so they appear in the SDP.
-        let chat_dc = pc.create_data_channel("chat", None).await?;
-        register_chat_dc_callbacks(&chat_dc, &app, &remote_username);
-        *chat_dc_slot.lock().await = Some(chat_dc);
-
+        // Create the game channel before the offer so it appears in the SDP.
         let game_dc = pc.create_data_channel("game", Some(game_init)).await?;
-        register_game_dc_callbacks(&game_dc, &remote_username);
+        register_game_dc_callbacks(&game_dc, &app, &remote_username);
         *game_dc_slot.lock().await = Some(game_dc);
 
         // Create offer and send.
@@ -212,23 +196,18 @@ pub async fn create_peer_connection(
         .await?;
     } else {
         // Answerer: on_data_channel fires once per channel; route by label.
-        let chat_slot2 = chat_dc_slot.clone();
         let game_slot2 = game_dc_slot.clone();
         let app2 = app.clone();
         let remote = remote_username.clone();
         pc.on_data_channel(Box::new(move |dc| {
-            let chat_slot3 = chat_slot2.clone();
             let game_slot3 = game_slot2.clone();
             let app3 = app2.clone();
             let peer = remote.clone();
             Box::pin(async move {
                 let label = dc.label().to_owned();
                 eprintln!("[WebRTC] incoming data channel '{label}' from {peer}");
-                if label == "chat" {
-                    register_chat_dc_callbacks(&dc, &app3, &peer);
-                    *chat_slot3.lock().await = Some(dc);
-                } else if label == "game" {
-                    register_game_dc_callbacks(&dc, &peer);
+                if label == "game" {
+                    register_game_dc_callbacks(&dc, &app3, &peer);
                     *game_slot3.lock().await = Some(dc);
                 }
             })
@@ -253,72 +232,21 @@ pub async fn create_peer_connection(
         .await?;
     }
 
-    Ok(PeerEntry { pc, chat_dc: chat_dc_slot, game_dc: game_dc_slot })
+    Ok(PeerEntry { pc, game_dc: game_dc_slot })
 }
 
 // ── data channel callback registration ───────────────────────────────────────
 
-fn register_chat_dc_callbacks(dc: &Arc<RTCDataChannel>, app: &AppHandle, remote: &str) {
-    // on_open — emit peer-state "open" so the UI knows the channel is ready.
-    {
-        let app2 = app.clone();
-        let peer = remote.to_owned();
-        dc.on_open(Box::new(move || {
-            let app3 = app2.clone();
-            let peer2 = peer.clone();
-            Box::pin(async move {
-                eprintln!("[WebRTC] chat channel open with {peer2}");
-                let _ = app3.emit(
-                    "peer-state",
-                    PeerStatePayload { peer: peer2, state: "open".to_string() },
-                );
-            })
-        }));
-    }
-
-    // on_message — deserialize JSON and emit "session-message".
-    {
-        let app2 = app.clone();
-        dc.on_message(Box::new(move |msg: DcMsg| {
-            let app3 = app2.clone();
-            let data = msg.data.clone();
-            Box::pin(async move {
-                if let Ok(m) = serde_json::from_slice::<DataChannelMessage>(&data) {
-                    let _ = app3.emit(
-                        "session-message",
-                        ChatMessagePayload {
-                            username: m.username,
-                            content: m.content,
-                            timestamp: m.timestamp,
-                        },
-                    );
-                }
-            })
-        }));
-    }
-
-    // on_close — emit peer-state "closed".
-    {
-        let app2 = app.clone();
-        let peer = remote.to_owned();
-        dc.on_close(Box::new(move || {
-            let app3 = app2.clone();
-            let peer2 = peer.clone();
-            Box::pin(async move {
-                let _ = app3.emit(
-                    "peer-state",
-                    PeerStatePayload { peer: peer2, state: "closed".to_string() },
-                );
-            })
-        }));
-    }
-}
-
-fn register_game_dc_callbacks(dc: &Arc<RTCDataChannel>, remote: &str) {
+fn register_game_dc_callbacks(dc: &Arc<RTCDataChannel>, app: &AppHandle, remote: &str) {
     let peer = remote.to_owned();
+    let app2 = app.clone();
     dc.on_open(Box::new(move || {
-        eprintln!("[WebRTC] game channel open with {peer}");
-        Box::pin(async {})
+        let peer2 = peer.clone();
+        let app3 = app2.clone();
+        eprintln!("[WebRTC] game channel open with {peer2}");
+        Box::pin(async move {
+            let _ = app3.emit("peer-state", PeerStatePayload { peer: peer2, state: "open".to_string() });
+        })
     }));
 
     let peer = remote.to_owned();

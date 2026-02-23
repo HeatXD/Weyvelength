@@ -3,30 +3,132 @@ package weyvelength;
 
 service Weyvelength {
   rpc GetServerInfo(GetServerInfoRequest) returns (GetServerInfoResponse);
-  rpc LeaveSession(LeaveSessionRequest) returns (LeaveSessionResponse);
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
   rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
   rpc JoinSession(JoinSessionRequest) returns (JoinSessionResponse);
+  rpc LeaveSession(LeaveSessionRequest) returns (LeaveSessionResponse);
+  rpc GetMembers(GetMembersRequest) returns (GetMembersResponse);
   rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
   rpc StreamMessages(StreamMessagesRequest) returns (stream ChatMessage);
-  rpc GetMembers(GetMembersRequest) returns (GetMembersResponse);
   rpc StreamSessionUpdates(StreamSessionUpdatesRequest) returns (stream SessionsUpdatedEvent);
   rpc StreamGlobalMembers(StreamGlobalMembersRequest) returns (stream GlobalMembersEvent);
   rpc SendSignal(SendSignalRequest) returns (SendSignalResponse);
   rpc StreamSignals(StreamSignalsRequest) returns (stream Signal);
 }
 
-message StreamSessionUpdatesRequest {}
-message SessionsUpdatedEvent { repeated SessionInfo sessions = 1; }
-message StreamGlobalMembersRequest {}
-message GlobalMembersEvent { repeated string members = 1; }
+// ── Server info ───────────────────────────────────────────────────────────────
 
 message IceServer {
-  string url        = 1;
-  string username   = 2;
+  string url = 1;
+  string username = 2;
   string credential = 3;
-  string name       = 4;  // display name shown in the client UI (empty for STUN-only entries)
+  string name = 4; // display name shown in the client UI (empty for STUN-only entries)
 }
+
+message GetServerInfoRequest {}
+
+message GetServerInfoResponse {
+  string server_name = 1;
+  string motd = 2;
+  repeated IceServer ice_servers = 3;
+}
+
+// ── Sessions ──────────────────────────────────────────────────────────────────
+
+message SessionInfo {
+  string id = 1;
+  string name = 2;
+  uint32 member_count = 3;
+  bool is_public = 4;
+  uint32 max_members = 5;
+}
+
+message ListSessionsRequest {}
+
+message ListSessionsResponse {
+  repeated SessionInfo sessions = 1;
+}
+
+message CreateSessionRequest {
+  string username = 1;
+  bool is_public = 2;
+  uint32 max_members = 3;
+}
+
+message CreateSessionResponse {
+  string session_id = 1;
+  string session_name = 2;
+  bool is_public = 3;
+  uint32 max_members = 4;
+  repeated string existing_peers = 5;
+  string host = 6;
+}
+
+message JoinSessionRequest {
+  string session_id = 1;
+  string username = 2;
+}
+
+message JoinSessionResponse {
+  string session_id = 1;
+  string session_name = 2;
+  bool is_public = 3;
+  uint32 max_members = 4;
+  repeated string existing_peers = 5;
+  string host = 6;
+}
+
+message LeaveSessionRequest {
+  string session_id = 1;
+  string username = 2;
+}
+
+message LeaveSessionResponse {}
+
+message GetMembersRequest {
+  string session_id = 1;
+}
+
+message GetMembersResponse {
+  repeated string members = 1;
+}
+
+// ── Messaging ─────────────────────────────────────────────────────────────────
+
+message SendMessageRequest {
+  string session_id = 1;
+  string username = 2;
+  string content = 3;
+}
+
+message SendMessageResponse {}
+
+message StreamMessagesRequest {
+  string session_id = 1;
+  string username = 2;
+}
+
+message ChatMessage {
+  string username = 1;
+  string content = 2;
+  int64 timestamp = 3;
+}
+
+// ── Session & presence streams ────────────────────────────────────────────────
+
+message StreamSessionUpdatesRequest {}
+
+message SessionsUpdatedEvent {
+  repeated SessionInfo sessions = 1;
+}
+
+message StreamGlobalMembersRequest {}
+
+message GlobalMembersEvent {
+  repeated string members = 1;
+}
+
+// ── WebRTC signaling ──────────────────────────────────────────────────────────
 
 enum SignalKind {
   SDP_OFFER = 0;
@@ -45,29 +147,13 @@ message Signal {
   string payload = 5;
 }
 
-message SendSignalRequest { Signal signal = 1; }
+message SendSignalRequest {
+  Signal signal = 1;
+}
+
 message SendSignalResponse {}
 
 message StreamSignalsRequest {
   string session_id = 1;
   string username = 2;
 }
-
-message GetServerInfoRequest {}
-message GetServerInfoResponse { string server_name = 1; string motd = 2; repeated IceServer ice_servers = 3; }
-message LeaveSessionRequest { string session_id = 1; string username = 2; }
-message LeaveSessionResponse {}
-
-message SessionInfo { string id = 1; string name = 2; uint32 member_count = 3; bool is_public = 4; uint32 max_members = 5; }
-message CreateSessionRequest { string username = 1; bool is_public = 2; uint32 max_members = 3; }
-message CreateSessionResponse { string session_id = 1; string session_name = 2; bool is_public = 3; uint32 max_members = 4; repeated string existing_peers = 5; string host = 6; }
-message JoinSessionRequest { string session_id = 1; string username = 2; }
-message JoinSessionResponse { string session_id = 1; string session_name = 2; bool is_public = 3; uint32 max_members = 4; repeated string existing_peers = 5; string host = 6; }
-message SendMessageRequest { string session_id = 1; string username = 2; string content = 3; }
-message SendMessageResponse {}
-message StreamMessagesRequest { string session_id = 1; string username = 2; }
-message ChatMessage { string username = 1; string content = 2; int64 timestamp = 3; }
-message ListSessionsRequest {}
-message ListSessionsResponse { repeated SessionInfo sessions = 1; }
-message GetMembersRequest { string session_id = 1; }
-message GetMembersResponse { repeated string members = 1; }

@@ -1,26 +1,15 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use tauri::{AppHandle, Emitter, Manager, State};
 use tonic::transport::Channel;
 use tokio::sync::oneshot;
 
-use crate::commands::streaming::ChatMessagePayload;
 use crate::grpc::{
     weyvelength::{Signal, SignalKind, StreamSignalsRequest},
     WeyvelengthClient,
 };
 use crate::state::{AppState, StreamKind};
-use bytes::Bytes;
-use crate::webrtc::{create_peer_connection, DataChannelMessage, MemberEventPayload};
+use crate::webrtc::{create_peer_connection, MemberEventPayload};
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
-
-fn unix_secs() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
-}
 
 // ── commands ──────────────────────────────────────────────────────────────────
 
@@ -99,42 +88,6 @@ pub async fn leave_session_webrtc(state: State<'_, AppState>) -> Result<(), Stri
     state.cancel_stream(StreamKind::Signals);
     state.close_all_peer_connections().await;
     *state.current_session_id.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn send_session_message(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    content: String,
-) -> Result<(), String> {
-    let username = state.get_username()?;
-    let timestamp = unix_secs();
-
-    let bytes = serde_json::to_vec(&DataChannelMessage {
-        username: username.clone(),
-        content: content.clone(),
-        timestamp,
-    })
-    .map_err(|e| e.to_string())?;
-
-    // Collect DC arcs first (drop the Mutex lock before any async work).
-    let dcs: Vec<_> = {
-        let map = state.peer_connections.lock().unwrap_or_else(|e| e.into_inner());
-        map.values().map(|e| e.chat_dc.clone()).collect()
-    };
-    for slot in dcs {
-        if let Some(dc) = slot.lock().await.as_ref() {
-            let _ = dc.send(&Bytes::copy_from_slice(&bytes)).await;
-        }
-    }
-
-    // Self-echo so the sender sees their own message immediately.
-    let _ = app.emit(
-        "session-message",
-        ChatMessagePayload { username, content, timestamp },
-    );
-
     Ok(())
 }
 

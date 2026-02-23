@@ -6,10 +6,9 @@ use crate::codegen::weyvelength::{
     ChatMessage, GlobalMembersEvent, SessionInfo, SessionsUpdatedEvent, StreamGlobalMembersRequest,
     StreamMessagesRequest, StreamSessionUpdatesRequest,
 };
-use crate::session::leave_session_inner;
 use crate::state::{GLOBAL_SESSION_ID, SharedState};
 
-use super::helpers::{notify_sessions_changed, public_sessions};
+use super::helpers::public_sessions;
 
 pub type MessagesStream = UnboundedReceiverStream<Result<ChatMessage, Status>>;
 pub type SessionUpdatesStream = UnboundedReceiverStream<Result<SessionsUpdatedEvent, Status>>;
@@ -96,21 +95,8 @@ pub async fn handle_stream_messages(
                     let _ = state.global_members_tx.send(());
                     println!("[global] {} disconnected", username);
                 }
-            } else {
-                let update_tx = {
-                    let mut state = state_clone.lock().unwrap();
-                    let was_public = state
-                        .sessions
-                        .get(&session_id)
-                        .map(|s| s.is_public)
-                        .unwrap_or(false);
-                    leave_session_inner(&mut *state, &session_id, &username);
-                    was_public.then(|| state.session_update_tx.clone())
-                };
-                if let Some(tx) = update_tx {
-                    notify_sessions_changed(&tx);
-                }
             }
+            // Non-global: no implicit leave. Lifecycle managed by JoinSession/LeaveSession RPCs.
         }
     });
 

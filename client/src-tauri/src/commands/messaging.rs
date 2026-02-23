@@ -30,3 +30,17 @@ pub async fn send_global_message(
 ) -> Result<(), String> {
     send(&state, GLOBAL_SESSION_ID.into(), content).await
 }
+
+#[tauri::command]
+pub async fn send_session_message(
+    state: State<'_, AppState>,
+    content: String,
+) -> Result<(), String> {
+    let session_id = state
+        .current_session_id
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+        .ok_or_else(|| "Not in a session".to_string())?;
+    send(&state, session_id, content).await
+}

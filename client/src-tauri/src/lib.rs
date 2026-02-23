@@ -28,8 +28,11 @@ pub fn run() {
             leave_session,
             get_members,
             send_global_message,
+            send_session_message,
             start_global_stream,
             stop_global_stream,
+            start_session_stream,
+            stop_session_stream,
             start_session_updates_stream,
             stop_session_updates_stream,
             start_global_members_stream,
@@ -37,7 +40,6 @@ pub fn run() {
             join_session_webrtc,
             leave_session_webrtc,
             close_peer_connection,
-            send_session_message,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
