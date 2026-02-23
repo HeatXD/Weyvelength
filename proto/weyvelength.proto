@@ -34,6 +34,7 @@ enum SignalKind {
   ICE_CANDIDATE = 2;
   MEMBER_JOINED = 3;
   MEMBER_LEFT = 4;
+  HOST_CHANGED = 5;
 }
 
 message Signal {
@@ -59,9 +60,9 @@ message LeaveSessionResponse {}
 
 message SessionInfo { string id = 1; string name = 2; uint32 member_count = 3; bool is_public = 4; uint32 max_members = 5; }
 message CreateSessionRequest { string username = 1; bool is_public = 2; uint32 max_members = 3; }
-message CreateSessionResponse { string session_id = 1; string session_name = 2; bool is_public = 3; uint32 max_members = 4; repeated string existing_peers = 5; }
+message CreateSessionResponse { string session_id = 1; string session_name = 2; bool is_public = 3; uint32 max_members = 4; repeated string existing_peers = 5; string host = 6; }
 message JoinSessionRequest { string session_id = 1; string username = 2; }
-message JoinSessionResponse { string session_id = 1; string session_name = 2; bool is_public = 3; uint32 max_members = 4; repeated string existing_peers = 5; }
+message JoinSessionResponse { string session_id = 1; string session_name = 2; bool is_public = 3; uint32 max_members = 4; repeated string existing_peers = 5; string host = 6; }
 message SendMessageRequest { string session_id = 1; string username = 2; string content = 3; }
 message SendMessageResponse {}
 message StreamMessagesRequest { string session_id = 1; string username = 2; }

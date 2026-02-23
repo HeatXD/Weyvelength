@@ -18,6 +18,7 @@ pub struct IceServerConfig {
 pub struct SessionData {
     pub id: String,
     pub name: String,
+    pub host: String,
     pub members: Vec<String>,
     pub is_public: bool,
     pub max_members: u32, // 0 = unlimited
@@ -51,6 +52,7 @@ impl ServerState {
             SessionData {
                 id: GLOBAL_SESSION_ID.to_string(),
                 name: "global".into(),
+                host: String::new(),
                 members: vec![],
                 is_public: false,
                 max_members: 0,

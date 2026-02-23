@@ -38,6 +38,8 @@ export interface AppStore {
   /** When true, WebRTC will only use TURN relay candidates (forces relay path). */
   forceRelay: () => boolean;
   setForceRelay: (v: boolean) => void;
+  /** Username of the current session host, or empty string when not in a session. */
+  currentHost: () => string;
   /** WebRTC connection state per peer username. Values: "checking" | "connected" | "open" | "disconnected" | "failed" | "closed" */
   peerStates: () => Map<string, string>;
   sessions: () => SessionInfo[];
@@ -78,6 +80,7 @@ export function createAppStore(): AppStore {
     null,
   );
   const [forceRelay, setForceRelay] = createSignal<boolean>(false);
+  const [currentHost, setCurrentHost] = createSignal<string>("");
   const [peerStates, setPeerStates] = createSignal<Map<string, string>>(
     new Map(),
   );
@@ -87,19 +90,19 @@ export function createAppStore(): AppStore {
   const globalMembersHandle: StreamHandle = { unlisten: null };
   const peerStateHandle: StreamHandle = { unlisten: null };
   const memberEventHandle: StreamHandle = { unlisten: null };
+  const hostChangedHandle: StreamHandle = { unlisten: null };
   // Kept alive for the entire app session; cleaned up in disconnect().
   const connectionLostHandle: StreamHandle = { unlisten: null };
 
   let joiningSession = false;
   async function withJoinGuard(
     fn: () => Promise<SessionPayload>,
-    isOwner = false,
   ): Promise<void> {
     if (session.currentSession() || joiningSession) return;
     joiningSession = true;
     ui.setError("");
     try {
-      await joinSessionChannel(await fn(), isOwner);
+      await joinSessionChannel(await fn());
     } catch (e) {
       ui.setError(String(e));
     } finally {
@@ -191,6 +194,7 @@ export function createAppStore(): AppStore {
       messaging.sessionHandle,
       peerStateHandle,
       memberEventHandle,
+      hostChangedHandle,
       sessionUpdatesHandle,
       globalMembersHandle,
       connectionLostHandle,
@@ -207,6 +211,7 @@ export function createAppStore(): AppStore {
     server.setServerInfo(null);
     setSelectedTurnSignal(null);
     setPeerStates(new Map());
+    setCurrentHost("");
     session.setSessions([]);
     session.setCurrentSession(null);
     messaging.setGlobalMessages([]);
@@ -215,8 +220,10 @@ export function createAppStore(): AppStore {
     session.setGlobalMembers([]);
   }
 
-  async function joinSessionChannel(sess: SessionPayload, isOwner: boolean): Promise<void> {
+  async function joinSessionChannel(sess: SessionPayload): Promise<void> {
     setPeerStates(new Map()); // reset on each new session join
+    setCurrentHost(sess.host);
+    let isOwner = sess.host === server.username();
     session.setCurrentSession(sess);
     messaging.setActiveChannel("session");
     messaging.setSessionMessages([]);
@@ -319,19 +326,62 @@ export function createAppStore(): AppStore {
             },
           ]);
         } else {
-          leftPeers.add(username);
-          messaging.setSessionMessages((prev) => [
-            ...prev,
-            {
-              username: "",
-              content: `${username} left`,
-              timestamp: Date.now(),
-              system: true,
-            },
-          ]);
+          invoke("close_peer_connection", { peer: username }).catch(() => {});
+          if (connectingPeers.has(username)) {
+            connectingPeers.delete(username);
+            messaging.setSessionMessages((prev) => {
+              const idx = prev.findLastIndex(
+                (m) => m.system && m.content === `${username} is connecting…`,
+              );
+              if (idx === -1)
+                return [
+                  ...prev,
+                  {
+                    username: "",
+                    content: `${username} left`,
+                    timestamp: Date.now(),
+                    system: true,
+                  },
+                ];
+              const next = [...prev];
+              next[idx] = { ...next[idx], content: `${username} left` };
+              return next;
+            });
+          } else {
+            leftPeers.add(username);
+            messaging.setSessionMessages((prev) => [
+              ...prev,
+              {
+                username: "",
+                content: `${username} left`,
+                timestamp: Date.now(),
+                system: true,
+              },
+            ]);
+          }
         }
       }
       session.fetchMembers(sess.session_id).catch(() => {});
+    });
+
+    // host-changed: server signals host migration
+    teardownHandle(hostChangedHandle);
+    hostChangedHandle.unlisten = await listen<string>("host-changed", (e) => {
+      const newHost = e.payload;
+      setCurrentHost(newHost);
+      isOwner = newHost === server.username();
+      messaging.setSessionMessages((prev) => [
+        ...prev,
+        {
+          username: "",
+          content:
+            newHost === server.username()
+              ? "You are now the host"
+              : `${newHost} is now the host`,
+          timestamp: Date.now(),
+          system: true,
+        },
+      ]);
     });
   }
 
@@ -347,7 +397,6 @@ export function createAppStore(): AppStore {
   ): Promise<void> {
     await withJoinGuard(
       () => invoke<SessionPayload>("create_session", { isPublic, maxMembers }),
-      true,
     );
   }
 
@@ -371,7 +420,9 @@ export function createAppStore(): AppStore {
     teardownHandle(messaging.sessionHandle);
     teardownHandle(peerStateHandle);
     teardownHandle(memberEventHandle);
+    teardownHandle(hostChangedHandle);
     setPeerStates(new Map());
+    setCurrentHost("");
     messaging.setSessionMessages([]);
     messaging.setActiveChannel("global");
     session.setMembers([]);
@@ -407,6 +458,7 @@ export function createAppStore(): AppStore {
     setTurn,
     forceRelay,
     setForceRelay,
+    currentHost,
     peerStates,
     username: server.username,
     addServer: server.addServer,

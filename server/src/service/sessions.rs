@@ -36,6 +36,7 @@ pub async fn handle_create_session(
             SessionData {
                 id: code.clone(),
                 name: code.clone(),
+                host: req.username.clone(),
                 members: vec![],
                 is_public: req.is_public,
                 max_members,
@@ -55,6 +56,7 @@ pub async fn handle_create_session(
         notify_sessions_changed(&update_tx);
     }
 
+    let host = req.username.clone();
     let visibility = if is_public { "public" } else { "private" };
     println!("[session] created {} by {} ({}, max={})", code, req.username, visibility, max_members);
 
@@ -64,6 +66,7 @@ pub async fn handle_create_session(
         is_public,
         max_members,
         existing_peers: vec![],
+        host,
     }))
 }
 
@@ -71,7 +74,7 @@ pub async fn handle_join_session(
     state: &SharedState,
     req: JoinSessionRequest,
 ) -> Result<Response<JoinSessionResponse>, Status> {
-    let (session_id, session_name, is_public, max_members, existing_peers, update_tx) = {
+    let (session_id, session_name, is_public, max_members, existing_peers, host, update_tx) = {
         let mut state = state.lock().unwrap();
 
         {
@@ -102,6 +105,7 @@ pub async fn handle_join_session(
             session.is_public,
             session.max_members,
             existing_peers,
+            session.host.clone(),
             state.session_update_tx.clone(),
         )
     };
@@ -142,6 +146,7 @@ pub async fn handle_join_session(
         is_public,
         max_members,
         existing_peers,
+        host,
     }))
 }
 
@@ -151,7 +156,7 @@ pub async fn handle_leave_session(
 ) -> Result<Response<LeaveSessionResponse>, Status> {
     // Collect signal senders for all members except the leaver BEFORE removing
     // them, so we can notify them after the member is gone.
-    let (update_tx, leave_senders) = {
+    let (update_tx, leave_senders, host_changed) = {
         let mut state = state.lock().unwrap();
         // If the user isn't a member the RPC is a duplicate (e.g. two failing
         // WebRTC connections both triggered leave on the client side). Return
@@ -164,6 +169,11 @@ pub async fn handle_leave_session(
         {
             return Ok(Response::new(LeaveSessionResponse {}));
         }
+        let was_host = state
+            .sessions
+            .get(&req.session_id)
+            .map(|s| s.host == req.username)
+            .unwrap_or(false);
         let leave_senders: Vec<_> = state
             .sessions
             .get(&req.session_id)
@@ -181,7 +191,19 @@ pub async fn handle_leave_session(
             .map(|s| s.is_public)
             .unwrap_or(false);
         leave_session_inner(&mut *state, &req.session_id, &req.username);
-        (was_public.then(|| state.session_update_tx.clone()), leave_senders)
+        // After leave, migrate host if needed and session still has members.
+        let host_changed: Option<(String, Vec<_>)> = if was_host {
+            state.sessions.get_mut(&req.session_id).and_then(|session| {
+                session.members.first().cloned().map(|new_host| {
+                    session.host = new_host.clone();
+                    let senders: Vec<_> = session.signal_senders.values().cloned().collect();
+                    (new_host, senders)
+                })
+            })
+        } else {
+            None
+        };
+        (was_public.then(|| state.session_update_tx.clone()), leave_senders, host_changed)
     };
 
     if let Some(tx) = update_tx {
@@ -196,8 +218,23 @@ pub async fn handle_leave_session(
         kind: SignalKind::MemberLeft as i32,
         payload: req.username.clone(),
     };
-    for tx in leave_senders {
+    for tx in &leave_senders {
         let _ = tx.send(sig.clone());
+    }
+
+    // Fan-out HostChanged if the host migrated.
+    if let Some((new_host, host_senders)) = host_changed {
+        let host_sig = Signal {
+            from_user: String::new(),
+            to_user: String::new(),
+            session_id: req.session_id.clone(),
+            kind: SignalKind::HostChanged as i32,
+            payload: new_host.clone(),
+        };
+        for tx in host_senders {
+            let _ = tx.send(host_sig.clone());
+        }
+        println!("[session] host of {} migrated to {}", req.session_id, new_host);
     }
 
     println!("[session] {} left {}", req.username, req.session_id);

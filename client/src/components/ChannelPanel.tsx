@@ -53,7 +53,7 @@ export default function ChannelPanel() {
                 </div>
               </Show>
               <div class="force-relay-row">
-                <span class="turn-selector-label">Force Relay</span>
+                <span class="turn-selector-label">Force Relay Usage</span>
                 <button
                   role="switch"
                   aria-checked={store.forceRelay()}

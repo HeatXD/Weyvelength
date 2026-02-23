@@ -95,6 +95,7 @@ export default function ChatPane() {
                     >
                       {(m) => {
                         const isSelf = () => m === store.username();
+                        const isHost = () => m === store.currentHost();
                         const connState = () =>
                           isSelf() ? null : (store.peerStates().get(m) ?? null);
                         const dotClass = () => {
@@ -122,6 +123,7 @@ export default function ChatPane() {
                               title={connState() ?? "not yet connected"}
                             />
                             {m}
+                            {isHost() ? " ★" : ""}
                             {isSelf() ? " (you)" : ""}
                           </div>
                         );

@@ -28,6 +28,7 @@ export interface SessionPayload {
   is_public: boolean;
   max_members: number;
   existing_peers: string[];
+  host: string;
 }
 
 export interface IceServer {

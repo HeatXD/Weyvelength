@@ -26,6 +26,7 @@ pub struct SessionPayload {
     pub is_public: bool,
     pub max_members: u32,
     pub existing_peers: Vec<String>,
+    pub host: String,
 }
 
 #[tauri::command]
@@ -71,6 +72,7 @@ pub async fn create_session(
         is_public: r.is_public,
         max_members: r.max_members,
         existing_peers: r.existing_peers,
+        host: r.host,
     })
 }
 
@@ -92,6 +94,7 @@ pub async fn join_session(
         is_public: r.is_public,
         max_members: r.max_members,
         existing_peers: r.existing_peers,
+        host: r.host,
     })
 }
 

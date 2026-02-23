@@ -79,6 +79,22 @@ pub async fn join_session_webrtc(
 }
 
 #[tauri::command]
+pub async fn close_peer_connection(
+    state: State<'_, AppState>,
+    peer: String,
+) -> Result<(), String> {
+    let entry = state
+        .peer_connections
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&peer);
+    if let Some(entry) = entry {
+        let _ = entry.pc.close().await;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn leave_session_webrtc(state: State<'_, AppState>) -> Result<(), String> {
     state.cancel_stream(StreamKind::Signals);
     state.close_all_peer_connections().await;
@@ -245,5 +261,7 @@ async fn handle_incoming_signal(app: AppHandle, signal: Signal) {
             "member-event",
             MemberEventPayload { username: signal.payload, joined: false },
         );
+    } else if signal.kind == SignalKind::HostChanged as i32 {
+        let _ = app.emit("host-changed", signal.payload);
     }
 }

@@ -30,6 +30,7 @@ pub fn run() {
             stop_global_members_stream,
             join_session_webrtc,
             leave_session_webrtc,
+            close_peer_connection,
             send_session_message,
         ])
         .run(tauri::generate_context!())
