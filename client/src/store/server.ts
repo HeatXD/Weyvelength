@@ -26,12 +26,6 @@ export function createServerSlice() {
     await store!.save();
   }
 
-  function username(): string {
-    const id = activeServerId();
-    if (!id) return "";
-    return servers().find((s) => s.id === id)?.username ?? "";
-  }
-
   function addServer(data: Omit<SavedServer, "id">): string {
     const id = crypto.randomUUID();
     const updated = [...servers(), { id, ...data }];
@@ -56,7 +50,6 @@ export function createServerSlice() {
     setConnectionStatus,
     serverInfo,
     setServerInfo,
-    username,
     addServer,
     removeFromList,
     initServers,

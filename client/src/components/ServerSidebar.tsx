@@ -1,5 +1,5 @@
 import { For } from "solid-js";
-import { Plus, X } from "lucide-solid";
+import { Plus, Settings, X } from "lucide-solid";
 
 import { useStore } from "../App";
 import "../styles/ServerSidebar.css";
@@ -46,6 +46,14 @@ export default function ServerSidebar() {
         title="Add Server"
       >
         <Plus size={20} stroke-width={1.75} />
+      </button>
+
+      <button
+        class="server-icon server-settings"
+        onClick={() => store.setShowLaunchModeModal(true)}
+        title="Launch Mode Settings"
+      >
+        <Settings size={18} stroke-width={1.75} />
       </button>
     </div>
   );
