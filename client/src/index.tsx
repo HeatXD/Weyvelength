@@ -13,7 +13,7 @@ if (splash) {
     root.style.opacity = "1";
   };
   // Delay by one rAF so the browser commits the initial opacity:1 paint
-  // before we start the fade-out — otherwise the CSS transition never fires
+  // before we start the fade-out, otherwise the CSS transition never fires
   // in release builds where the JS bundle executes before the first paint.
   setTimeout(() => {
     requestAnimationFrame(() => {

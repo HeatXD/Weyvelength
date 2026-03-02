@@ -25,7 +25,9 @@ pub async fn public_sessions(state: &ServerState) -> Vec<SessionInfo> {
             member_count: inner.members.len() as u32,
             is_public: session.is_public,
             max_members: session.max_members,
-            game_started: session.game_started.load(std::sync::atomic::Ordering::Relaxed),
+            game_started: session
+                .game_started
+                .load(std::sync::atomic::Ordering::Relaxed),
         });
     }
     result
@@ -39,7 +41,7 @@ pub fn notify_sessions_changed(tx: &broadcast::Sender<()>) {
 }
 
 /// Build a single `Signal` and fan it out to all senders in `senders`.
-/// Ignores send errors — a closed receiver just means the peer disconnected.
+/// Ignores send errors, a closed receiver just means the peer disconnected.
 pub fn fanout_signal(
     senders: &[mpsc::UnboundedSender<Arc<Signal>>],
     kind: SignalKind,

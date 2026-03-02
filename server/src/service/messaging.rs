@@ -9,7 +9,7 @@ pub async fn handle_send_message(
     req: SendMessageRequest,
 ) -> Result<Response<SendMessageResponse>, Status> {
     // Clone the broadcast Sender out of the DashMap entry.
-    // The shard lock is held only for the duration of the clone — zero async waits.
+    // The shard lock is held only for the duration of the clone, zero async waits.
     let tx = {
         let entry = state
             .sessions

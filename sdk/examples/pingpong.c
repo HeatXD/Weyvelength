@@ -1,5 +1,5 @@
 /*
- * pingpong.c — Weyvelength SDK example
+ * pingpong.c, Weyvelength SDK example
  *
  * Reads the session config (--wl-config) to find active player port slots,
  * broadcasts "ping" to all of them every 2 s, and replies "pong" to any
@@ -58,7 +58,7 @@ static const char *find_arg(int argc, char **argv, const char *flag)
 
 /*
  * Scan the config JSON for "player_id": N entries and collect every N > 0.
- * Returns the number of IDs found (≤ max).  No full JSON parser needed —
+ * Returns the number of IDs found (≤ max).  No full JSON parser needed,
  * the token "player_id" only appears in the members map.
  */
 static int collect_player_ids(const char *cfg, uint8_t *out, int max)

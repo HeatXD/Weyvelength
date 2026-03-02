@@ -1,4 +1,4 @@
-//! Weyvelength SDK — Rust implementation with C-compatible API.
+//! Weyvelength SDK, Rust implementation with C-compatible API.
 //!
 //! A tokio background task continuously drains the UDP bridge socket into an
 //! internal queue. `wl_poll` snapshots that queue; the game loop never blocks

@@ -9,7 +9,7 @@ export interface ChatMessage {
   username: string;
   content: string;
   timestamp: number;
-  /** True for join/leave notifications — rendered differently, never sent over the wire */
+  /** True for join/leave notifications, rendered differently, never sent over the wire */
   system?: boolean;
 }
 
@@ -40,7 +40,7 @@ export interface LaunchMode {
   name: string;
   /** Path to the executable */
   exePath: string;
-  /** Path to folder containing games — omit for standalone executables */
+  /** Path to folder containing games, omit for standalone executables */
   gamesFolder?: string;
 }
 

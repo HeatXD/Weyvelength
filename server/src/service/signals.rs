@@ -108,7 +108,7 @@ pub async fn handle_stream_signals(
 
         // Treat stream close as implicit leave (handles crashes and clients that
         // disconnect without calling LeaveSession). leave_session_inner is an
-        // atomic gate — if an explicit LeaveSession already ran, this returns None.
+        // atomic gate, if an explicit LeaveSession already ran, this returns None.
         if let Some(LeaveInfo {
             senders,
             is_public,

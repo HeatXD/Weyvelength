@@ -1,5 +1,5 @@
 /*
- * wl-sdk.h — Weyvelength SDK public API
+ * wl-sdk.h, Weyvelength SDK public API
  *
  * Call wl_init() once at startup, then wl_poll() each tick to drain inbound
  * packets. Use wl_send() to transmit data to a peer by player ID.

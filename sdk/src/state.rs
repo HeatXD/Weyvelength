@@ -1,4 +1,4 @@
-// Internal types, globals, and helpers — not part of the public C API.
+// Internal types, globals, and helpers, not part of the public C API.
 
 use std::ffi::CString;
 use std::sync::{Mutex, OnceLock};
@@ -17,31 +17,31 @@ pub const WL_PACKET_MAX: usize = 1400;
 
 #[repr(C)]
 pub struct WlEvent {
-    pub kind:           u32,
+    pub kind: u32,
     pub from_player_id: u8,
-    pub _pad:           [u8; 3],
-    pub data_len:       i32,
-    pub data:           [u8; WL_PACKET_MAX],
+    pub _pad: [u8; 3],
+    pub data_len: i32,
+    pub data: [u8; WL_PACKET_MAX],
 }
 
 // ── SDK state ─────────────────────────────────────────────────────────────────
 
 pub struct SdkState {
     /// Inbound events pushed by run_io; drained synchronously by wl_poll.
-    pub event_rx:        mpsc::UnboundedReceiver<WlEvent>,
+    pub event_rx: mpsc::UnboundedReceiver<WlEvent>,
     /// Outbound frames pulled by run_io; pushed synchronously by wl_send.
-    pub send_tx:         mpsc::UnboundedSender<Vec<u8>>,
+    pub send_tx: mpsc::UnboundedSender<Vec<u8>>,
     /// Dropping this field signals run_io to exit.
-    pub _shutdown_tx:    oneshot::Sender<()>,
+    pub _shutdown_tx: oneshot::Sender<()>,
     pub local_player_id: u8,
-    /// Runtime dropped last (field order) — blocks until run_io finishes.
-    pub _runtime:        tokio::runtime::Runtime,
+    /// Runtime dropped last (field order), blocks until run_io finishes.
+    pub _runtime: tokio::runtime::Runtime,
 }
 
 // ── Globals ───────────────────────────────────────────────────────────────────
 
-pub static GLOBAL:   Mutex<Option<SdkState>> = Mutex::new(None);
-pub static POLL_BUF: Mutex<Vec<WlEvent>>     = Mutex::new(Vec::new());
+pub static GLOBAL: Mutex<Option<SdkState>> = Mutex::new(None);
+pub static POLL_BUF: Mutex<Vec<WlEvent>> = Mutex::new(Vec::new());
 
 static ERROR: OnceLock<Mutex<CString>> = OnceLock::new();
 
@@ -63,9 +63,9 @@ mod tests {
     #[test]
     fn wl_event_layout() {
         assert_eq!(std::mem::size_of::<WlEvent>(), 1412);
-        assert_eq!(std::mem::offset_of!(WlEvent, kind),           0);
+        assert_eq!(std::mem::offset_of!(WlEvent, kind), 0);
         assert_eq!(std::mem::offset_of!(WlEvent, from_player_id), 4);
-        assert_eq!(std::mem::offset_of!(WlEvent, data_len),       8);
-        assert_eq!(std::mem::offset_of!(WlEvent, data),           12);
+        assert_eq!(std::mem::offset_of!(WlEvent, data_len), 8);
+        assert_eq!(std::mem::offset_of!(WlEvent, data), 12);
     }
 }

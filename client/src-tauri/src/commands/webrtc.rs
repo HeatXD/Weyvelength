@@ -215,7 +215,7 @@ pub async fn launch_game(
         let mut child = child;
         tokio::select! {
             _ = watch_rx => {
-                eprintln!("[watcher] cancelled externally — killing child");
+                eprintln!("[watcher] cancelled externally, killing child");
                 let _ = child.start_kill();
             }
             status = child.wait() => {
@@ -239,7 +239,7 @@ pub async fn launch_game(
 /// Tear down the UDP bridge and signal the process-watcher to kill the child.
 /// Call from leave/disconnect teardown or on GAME_STOPPED signal.
 pub fn kill_game_process(state: &AppState) {
-    // Signal the watcher — it holds the child and will call start_kill().
+    // Signal the watcher, it holds the child and will call start_kill().
     if let Some(tx) = state.game_watch_cancel.lock().unwrap().take() {
         let _ = tx.send(());
     }
@@ -299,7 +299,7 @@ async fn handle_incoming_signal(app: AppHandle, signal: Signal) {
     let state = app.state::<AppState>();
 
     if signal.kind == SignalKind::SdpOffer as i32 {
-        // A new peer sent us an offer — become the answerer.
+        // A new peer sent us an offer, become the answerer.
         let ice_servers = state.effective_ice_servers();
         let local_username = match state.get_username() {
             Ok(u) => u,

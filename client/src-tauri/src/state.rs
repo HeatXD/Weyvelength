@@ -28,7 +28,7 @@ pub struct IceServerEntry {
 /// Per-peer state. Call pc.close().await to shut down cleanly.
 pub struct PeerEntry {
     pub pc: Arc<RTCPeerConnection>,
-    /// Unreliable, unordered — UDP-proxy game bridge data channel.
+    /// Unreliable, unordered, UDP-proxy game bridge data channel.
     pub game_dc: Arc<TokioMutex<Option<Arc<RTCDataChannel>>>>,
 }
 

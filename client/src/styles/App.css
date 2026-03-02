@@ -115,7 +115,7 @@ input::placeholder {
   color: var(--text-muted);
 }
 
-/* Buttons — Base: all variants extend this */
+/* Buttons, Base: all variants extend this */
 .btn {
   border: none;
   border-radius: 0.5rem;
@@ -140,7 +140,7 @@ input::placeholder {
   gap: 0.375rem;
 }
 
-/* Button Variants — color overrides only */
+/* Button Variants, color overrides only */
 .btn-primary {
   background: var(--accent);
   color: #fff;
@@ -211,7 +211,7 @@ input::placeholder {
   overflow: hidden;
 }
 
-/* Wider variant — for launch modal with game list + assignments */
+/* Wider variant, for launch modal with game list + assignments */
 .modal-lg {
   max-width: 440px;
 }
@@ -243,7 +243,9 @@ input::placeholder {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
   padding: 0;
 }
 
@@ -513,7 +515,9 @@ input::placeholder {
   font-weight: 500;
   margin-bottom: -1px;
   padding: 0.35rem 0.875rem;
-  transition: color 0.15s, border-color 0.15s;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
 }
 
 .auth-tab:hover {

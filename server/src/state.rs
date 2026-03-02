@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use dashmap::DashMap;
 use sqlx::SqlitePool;
@@ -20,7 +20,7 @@ pub struct IceServerConfig {
     pub name: String,
 }
 
-/// Mutable per-session state — protected by a tokio-aware Mutex so sessions
+/// Mutable per-session state, protected by a tokio-aware Mutex so sessions
 /// don't contend with each other and the executor thread is never blocked.
 pub struct SessionInner {
     pub host: String,
@@ -36,14 +36,14 @@ pub struct SessionData {
     pub name: String,
     pub is_public: bool,
     pub max_members: u32,
-    /// Broadcast channel for chat messages — cloning the Sender is cheap and lock-free.
+    /// Broadcast channel for chat messages, cloning the Sender is cheap and lock-free.
     pub tx: broadcast::Sender<ChatMessage>,
     pub game_started: AtomicBool,
     pub inner: tokio::sync::Mutex<SessionInner>,
 }
 
 pub struct ServerState {
-    // Immutable after initialisation — no lock needed.
+    // Immutable after initialisation, no lock needed.
     pub server_name: String,
     pub motd: String,
     pub ice_servers: Vec<IceServerConfig>,
@@ -65,15 +65,20 @@ pub struct ServerState {
 
     /// Counts active `StreamMessages` connections per username for the global session.
     /// A user is removed from `global.members` only when this reaches zero.
-    /// DashMap: increment/decrement are synchronous — no async lock needed.
+    /// DashMap: increment/decrement are synchronous, no async lock needed.
     pub global_stream_refs: DashMap<String, usize>,
 }
 
-/// `Arc<ServerState>` — interior mutability is per-field, no outer Mutex.
+/// `Arc<ServerState>`, interior mutability is per-field, no outer Mutex.
 pub type SharedState = Arc<ServerState>;
 
 impl ServerState {
-    pub fn new(server_name: String, motd: String, ice_servers: Vec<IceServerConfig>, db: SqlitePool) -> Self {
+    pub fn new(
+        server_name: String,
+        motd: String,
+        ice_servers: Vec<IceServerConfig>,
+        db: SqlitePool,
+    ) -> Self {
         let (chat_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let (session_update_tx, _) = broadcast::channel(16);
         let (global_members_tx, _) = broadcast::channel(16);

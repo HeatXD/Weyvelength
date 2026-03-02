@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::state::{SdkState, WlEvent, WL_PACKET_MAX, GLOBAL, POLL_BUF};
+use crate::state::{GLOBAL, POLL_BUF, SdkState, WL_PACKET_MAX, WlEvent};
 
 pub fn init(bridge_port: i32, local_player_id: u8) -> Result<(), String> {
     shutdown();
@@ -25,7 +25,7 @@ pub fn init(bridge_port: i32, local_player_id: u8) -> Result<(), String> {
         .map_err(|e| format!("bind error: {e}"))?;
 
     let (event_tx, event_rx) = mpsc::unbounded_channel::<WlEvent>();
-    let (send_tx, send_rx)   = mpsc::unbounded_channel::<Vec<u8>>();
+    let (send_tx, send_rx) = mpsc::unbounded_channel::<Vec<u8>>();
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
     runtime.spawn(run_io(socket, event_tx, send_rx, bridge_addr, shutdown_rx));
@@ -33,9 +33,9 @@ pub fn init(bridge_port: i32, local_player_id: u8) -> Result<(), String> {
     *GLOBAL.lock().unwrap() = Some(SdkState {
         event_rx,
         send_tx,
-        _shutdown_tx:    shutdown_tx,
+        _shutdown_tx: shutdown_tx,
         local_player_id,
-        _runtime:        runtime,
+        _runtime: runtime,
     });
 
     Ok(())
@@ -49,13 +49,19 @@ pub fn shutdown() {
 }
 
 pub fn local_player_id() -> u8 {
-    GLOBAL.lock().unwrap().as_ref().map_or(0, |s| s.local_player_id)
+    GLOBAL
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map_or(0, |s| s.local_player_id)
 }
 
-/// Drains all queued inbound events. Fully synchronous — no block_on.
+/// Drains all queued inbound events. Fully synchronous, no block_on.
 pub fn poll() -> (*const WlEvent, i32) {
     let mut lock = GLOBAL.lock().unwrap();
-    let Some(state) = lock.as_mut() else { return (std::ptr::null(), 0); };
+    let Some(state) = lock.as_mut() else {
+        return (std::ptr::null(), 0);
+    };
 
     let mut buf = POLL_BUF.lock().unwrap();
     buf.clear();
@@ -63,11 +69,15 @@ pub fn poll() -> (*const WlEvent, i32) {
         buf.push(ev);
     }
     let count = buf.len() as i32;
-    let ptr = if buf.is_empty() { std::ptr::null() } else { buf.as_ptr() };
+    let ptr = if buf.is_empty() {
+        std::ptr::null()
+    } else {
+        buf.as_ptr()
+    };
     (ptr, count)
 }
 
-/// Queues a frame for delivery. Fully synchronous — no block_on.
+/// Queues a frame for delivery. Fully synchronous, no block_on.
 pub fn send(to_player_id: u8, payload: &[u8]) -> Result<(), String> {
     let lock = GLOBAL.lock().unwrap();
     let s = lock.as_ref().ok_or_else(|| "not initialised".to_owned())?;
@@ -77,7 +87,9 @@ pub fn send(to_player_id: u8, payload: &[u8]) -> Result<(), String> {
     frame.push(to_player_id);
     frame.extend_from_slice(payload);
 
-    s.send_tx.send(frame).map_err(|_| "io task stopped".to_owned())
+    s.send_tx
+        .send(frame)
+        .map_err(|_| "io task stopped".to_owned())
 }
 
 // ── I/O task ─────────────────────────────────────────────────────────────────
@@ -86,8 +98,8 @@ pub fn send(to_player_id: u8, payload: &[u8]) -> Result<(), String> {
 // the C thread only touches the channels.
 
 async fn run_io(
-    socket:      Arc<UdpSocket>,
-    event_tx:    mpsc::UnboundedSender<WlEvent>,
+    socket: Arc<UdpSocket>,
+    event_tx: mpsc::UnboundedSender<WlEvent>,
     mut send_rx: mpsc::UnboundedReceiver<Vec<u8>>,
     bridge_addr: SocketAddr,
     mut shutdown_rx: oneshot::Receiver<()>,

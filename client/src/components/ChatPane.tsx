@@ -101,7 +101,10 @@ export default function ChatPane() {
     setAssignments((prev) => {
       // If another Player already holds this port, swap them.
       const clash = Object.keys(prev).find(
-        (name) => name !== member && prev[name].role === "Player" && prev[name].player_id === id,
+        (name) =>
+          name !== member &&
+          prev[name].role === "Player" &&
+          prev[name].player_id === id,
       );
       const myOldId = prev[member]?.player_id ?? 0;
       return {
@@ -314,7 +317,11 @@ export default function ChatPane() {
       </div>
 
       <Show when={showLaunchModal()}>
-        <Modal title="Launch Game" onClose={() => setShowLaunchModal(false)} class="modal-lg">
+        <Modal
+          title="Launch Game"
+          onClose={() => setShowLaunchModal(false)}
+          class="modal-lg"
+        >
           {/* Launch mode picker */}
           <div class="launch-section-label">Launch Mode</div>
           <Show
@@ -336,7 +343,7 @@ export default function ChatPane() {
             </select>
           </Show>
 
-          {/* Game picker — only shown when the mode has a games folder */}
+          {/* Game picker, only shown when the mode has a games folder */}
           <Show when={selectedMode()?.gamesFolder}>
             <div class="launch-section-label">Game</div>
             <Show
@@ -421,7 +428,8 @@ export default function ChatPane() {
               disabled={
                 !selectedModeId() ||
                 (!!selectedMode()?.gamesFolder && !selectedGame()) ||
-                Object.values(assignments()).filter((a) => a.role === "Player").length < 2
+                Object.values(assignments()).filter((a) => a.role === "Player")
+                  .length < 2
               }
             >
               Launch

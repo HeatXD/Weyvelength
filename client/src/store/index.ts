@@ -59,7 +59,9 @@ async function getAuthStore(): Promise<Store> {
   return authStore;
 }
 
-async function loadSavedSession(serverId: string): Promise<SavedSession | null> {
+async function loadSavedSession(
+  serverId: string,
+): Promise<SavedSession | null> {
   try {
     return (await (await getAuthStore()).get<SavedSession>(serverId)) ?? null;
   } catch {
@@ -67,12 +69,22 @@ async function loadSavedSession(serverId: string): Promise<SavedSession | null> 
   }
 }
 
-async function saveSession(serverId: string, username: string, token: string): Promise<void> {
+async function saveSession(
+  serverId: string,
+  username: string,
+  token: string,
+): Promise<void> {
   try {
     const s = await getAuthStore();
-    await s.set(serverId, { username, token, expiresAt: Date.now() + TOKEN_TTL_MS });
+    await s.set(serverId, {
+      username,
+      token,
+      expiresAt: Date.now() + TOKEN_TTL_MS,
+    });
     await s.save();
-  } catch { /* not critical */ }
+  } catch {
+    /* not critical */
+  }
 }
 
 async function clearSession(serverId: string): Promise<void> {
@@ -80,7 +92,9 @@ async function clearSession(serverId: string): Promise<void> {
     const s = await getAuthStore();
     await s.delete(serverId);
     await s.save();
-  } catch { /* not critical */ }
+  } catch {
+    /* not critical */
+  }
 }
 
 export interface AppStore {
@@ -235,7 +249,10 @@ export function createAppStore(): AppStore {
       const saved = await loadSavedSession(id);
       let authed = false;
       if (saved && saved.expiresAt > Date.now()) {
-        await invoke("restore_session", { username: saved.username, token: saved.token });
+        await invoke("restore_session", {
+          username: saved.username,
+          token: saved.token,
+        });
         setLoggedInUsername(saved.username);
         authed = true;
       } else {
@@ -380,7 +397,7 @@ export function createAppStore(): AppStore {
     await session.fetchMembers(sess.session_id);
 
     // Pre-populate "connecting…" messages for all existing peers synchronously,
-    // before any WebRTC events can fire — avoids race between on_peer_connection_state_change
+    // before any WebRTC events can fire, avoids race between on_peer_connection_state_change
     // ("checking") and on_open ("open") which are separate async Rust callbacks.
     const connectingPeers = new Set<string>(sess.existing_peers);
     const now = Date.now();
@@ -444,7 +461,7 @@ export function createAppStore(): AppStore {
           session.currentSession()
         ) {
           failedPeers.add(peer);
-          // Only auto-leave if we have no other open peer connections — i.e. this
+          // Only auto-leave if we have no other open peer connections, i.e. this
           // failure leaves us completely isolated. If we're still connected to
           // other peers, just show an error and stay in the session.
           const hasOtherOpen = [...peerStates().entries()].some(
@@ -463,7 +480,7 @@ export function createAppStore(): AppStore {
       },
     );
 
-    // member-event: server-pushed join/leave signals — works for public and
+    // member-event: server-pushed join/leave signals, works for public and
     // private sessions alike.  Refresh the member list and inject a system message.
     teardownHandle(memberEventHandle);
     const self = loggedInUsername();
@@ -487,7 +504,7 @@ export function createAppStore(): AppStore {
           },
         ]);
       } else {
-        // Peer left — close our side of the WebRTC connection.
+        // Peer left, close our side of the WebRTC connection.
         invoke("close_peer_connection", { peer: username }).catch(() => {});
         if (connectingPeers.has(username)) {
           // Never finished connecting; replace the "connecting…" message in-place.
@@ -555,13 +572,23 @@ export function createAppStore(): AppStore {
     // Non-hosts get a file picker to choose their local emulator executable.
     teardownHandle(gameStartedHandle);
     gameStartedHandle.unlisten = await listen<string>("game-started", (e) => {
-      console.log("[game-started] received, isHost=", isHost(), "payload=", e.payload);
+      console.log(
+        "[game-started] received, isHost=",
+        isHost(),
+        "payload=",
+        e.payload,
+      );
       setGameStarted(true);
       sysMsg("The host started the game");
       if (!isHost()) {
         const cfg = JSON.parse(e.payload) as LaunchConfig;
         const me = cfg.members[loggedInUsername()];
-        console.log("[game-started] non-host launch: me=", me, "username=", loggedInUsername());
+        console.log(
+          "[game-started] non-host launch: me=",
+          me,
+          "username=",
+          loggedInUsername(),
+        );
         if (me?.role !== "Inactive") {
           void handleNonHostGameStart(me?.player_id ?? 0, cfg);
         }
@@ -570,7 +597,7 @@ export function createAppStore(): AppStore {
 
     // game-stopped: reset UI state. If we're the host and the process exited
     // naturally (watcher fired this), also tell the server so it fans GAME_STOPPED
-    // out to non-hosts — otherwise they'd stay stuck on "In Game".
+    // out to non-hosts, otherwise they'd stay stuck on "In Game".
     teardownHandle(gameStoppedHandle);
     gameStoppedHandle.unlisten = await listen("game-stopped", () => {
       const wasHost = isHost();
@@ -652,7 +679,12 @@ export function createAppStore(): AppStore {
     cfg: LaunchConfig,
   ): Promise<void> {
     const modes = config.launchModes();
-    console.log("[handleNonHostGameStart] platform=", cfg.platform, "modes=", modes.map((m) => m.name));
+    console.log(
+      "[handleNonHostGameStart] platform=",
+      cfg.platform,
+      "modes=",
+      modes.map((m) => m.name),
+    );
     const match =
       modes.find((m) => m.name.toLowerCase() === cfg.platform.toLowerCase()) ??
       (modes.length === 1 ? modes[0] : undefined);
@@ -660,14 +692,19 @@ export function createAppStore(): AppStore {
       console.warn("[handleNonHostGameStart] no matching launch mode");
       sysMsg(
         modes.length === 0
-          ? `Game launch failed: no launch modes configured — open Weyvelength Setup to add one.`
-          : `Game launch failed: no launch mode named "${cfg.platform}" — open Weyvelength Setup to configure it.`,
+          ? `Game launch failed: no launch modes configured, open Weyvelength Setup to add one.`
+          : `Game launch failed: no launch mode named "${cfg.platform}", open Weyvelength Setup to configure it.`,
       );
       return;
     }
-    console.log("[handleNonHostGameStart] matched mode=", match.name, "exePath=", match.exePath);
+    console.log(
+      "[handleNonHostGameStart] matched mode=",
+      match.name,
+      "exePath=",
+      match.exePath,
+    );
 
-    // Hash check — only verify fields the host included.
+    // Hash check, only verify fields the host included.
     if (cfg.exe_hash || cfg.game_hash) {
       const gamePath =
         match.gamesFolder && cfg.game
@@ -704,12 +741,15 @@ export function createAppStore(): AppStore {
 
       if (mismatches.length > 0) {
         console.warn("[handleNonHostGameStart] hash mismatch:", mismatches);
-        sysMsg(`Launch cancelled — hash mismatch: ${mismatches.join("; ")}.`);
+        sysMsg(`Launch cancelled, hash mismatch: ${mismatches.join("; ")}.`);
         return;
       }
     }
 
-    console.log("[handleNonHostGameStart] invoking launch_game playerId=", playerId);
+    console.log(
+      "[handleNonHostGameStart] invoking launch_game playerId=",
+      playerId,
+    );
     const { exe_hash: _e, game_hash: _g, ...launchCfg } = cfg;
     await invoke("launch_game", {
       exePath: match.exePath,

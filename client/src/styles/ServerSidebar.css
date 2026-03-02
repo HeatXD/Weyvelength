@@ -62,7 +62,7 @@
   background: var(--bg-hover);
 }
 
-/* Remove button — revealed on hover */
+/* Remove button, revealed on hover */
 .server-icon-wrapper {
   position: relative;
 }

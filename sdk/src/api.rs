@@ -1,10 +1,10 @@
-// C API boundary — argument conversion only; all logic is in core.
+// C API boundary, argument conversion only; all logic is in core.
 
 use std::ffi::{c_int, c_void};
 use std::ptr;
 
 use crate::core;
-use crate::state::{error_lock, set_error, WlEvent};
+use crate::state::{WlEvent, error_lock, set_error};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn wl_init(bridge_port: c_int, local_player_id: u8) -> c_int {

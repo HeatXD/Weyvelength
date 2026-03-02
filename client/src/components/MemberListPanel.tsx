@@ -16,7 +16,7 @@ export default function MemberListPanel() {
     >
       <div class="member-list-panel">
         <div class="member-list-header">
-          Online — {store.globalMembers().length}
+          Online, {store.globalMembers().length}
         </div>
         <div class="member-list-body">
           <For

@@ -176,7 +176,7 @@ pub async fn create_peer_connection(
 
     // ── SDP negotiation ───────────────────────────────────────────────────────
 
-    // Unreliable + unordered — UDP-like, for future game-state traffic.
+    // Unreliable + unordered, UDP-like, for future game-state traffic.
     let game_init = RTCDataChannelInit {
         ordered: Some(false),
         max_retransmits: Some(0),
