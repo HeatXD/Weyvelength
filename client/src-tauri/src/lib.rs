@@ -4,7 +4,7 @@ mod state;
 mod webrtc;
 
 use commands::{
-    connection::{connect, disconnect, get_server_info, set_turn_server},
+    connection::{connect, disconnect, get_server_info, login, register, restore_session, set_turn_server},
     messaging::*,
     sessions::*,
     streaming::*,
@@ -16,12 +16,16 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::new())
         .invoke_handler(tauri::generate_handler![
             connect,
             disconnect,
             get_server_info,
             set_turn_server,
+            login,
+            register,
+            restore_session,
             list_sessions,
             create_session,
             join_session,
@@ -40,6 +44,11 @@ pub fn run() {
             join_session_webrtc,
             leave_session_webrtc,
             close_peer_connection,
+            start_game,
+            stop_game,
+            launch_game,
+            list_games,
+            hash_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

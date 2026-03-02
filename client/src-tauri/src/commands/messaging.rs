@@ -13,11 +13,11 @@ async fn send(
     let username = state.get_username()?;
     let mut client = WeyvelengthClient::new(state.get_channel()?);
     client
-        .send_message(SendMessageRequest {
+        .send_message(state.authed_request(SendMessageRequest {
             session_id,
             username,
             content,
-        })
+        }))
         .await
         .map_err(|e| e.to_string())?;
     Ok(())

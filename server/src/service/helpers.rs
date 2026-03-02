@@ -25,6 +25,7 @@ pub async fn public_sessions(state: &ServerState) -> Vec<SessionInfo> {
             member_count: inner.members.len() as u32,
             is_public: session.is_public,
             max_members: session.max_members,
+            game_started: session.game_started.load(std::sync::atomic::Ordering::Relaxed),
         });
     }
     result

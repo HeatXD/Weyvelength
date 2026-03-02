@@ -1,11 +1,14 @@
 import { createSignal } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { load, Store } from "@tauri-apps/plugin-store";
 
 import type {
   ActiveChannel,
   ChatMessage,
   ConnectionStatus,
+  LaunchConfig,
+  LaunchMode,
   IceServer,
   SavedServer,
   ServerInfo,
@@ -13,6 +16,7 @@ import type {
   SessionPayload,
 } from "../types";
 import { manageStream, StreamHandle } from "./streams";
+import { createConfigSlice } from "./config";
 import { createUiSlice } from "./ui";
 import { createServerSlice } from "./server";
 import { createSessionSlice } from "./sessions";
@@ -39,7 +43,53 @@ async function restartStream<T>(
   await invoke(startCommand);
 }
 
+// ── Per-server auth token persistence ────────────────────────────────────────
+
+const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+interface SavedSession {
+  username: string;
+  token: string;
+  expiresAt: number;
+}
+
+let authStore: Store | null = null;
+async function getAuthStore(): Promise<Store> {
+  if (!authStore) authStore = await load("auth.json");
+  return authStore;
+}
+
+async function loadSavedSession(serverId: string): Promise<SavedSession | null> {
+  try {
+    return (await (await getAuthStore()).get<SavedSession>(serverId)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveSession(serverId: string, username: string, token: string): Promise<void> {
+  try {
+    const s = await getAuthStore();
+    await s.set(serverId, { username, token, expiresAt: Date.now() + TOKEN_TTL_MS });
+    await s.save();
+  } catch { /* not critical */ }
+}
+
+async function clearSession(serverId: string): Promise<void> {
+  try {
+    const s = await getAuthStore();
+    await s.delete(serverId);
+    await s.save();
+  } catch { /* not critical */ }
+}
+
 export interface AppStore {
+  /** True while the auth modal (login / register) should be shown. */
+  showAuthModal: () => boolean;
+  /** Called by AuthModal on successful login/register. Receives the username and issued token. */
+  onAuthSuccess: (username: string, token: string) => void;
+  /** Called by AuthModal when the user dismisses without authenticating. */
+  onAuthCancel: () => void;
   servers: () => SavedServer[];
   activeServerId: () => string | null;
   connectionStatus: () => ConnectionStatus;
@@ -54,6 +104,10 @@ export interface AppStore {
   setForceRelay: (v: boolean) => void;
   /** Username of the current session host, or empty string when not in a session. */
   currentHost: () => string;
+  /** True when the current user is the session host. */
+  isHost: () => boolean;
+  /** True when a game is currently running in the session. */
+  gameStarted: () => boolean;
   /** WebRTC connection state per peer username. Values: "checking" | "connected" | "open" | "disconnected" | "failed" | "closed" */
   peerStates: () => Map<string, string>;
   sessions: () => SessionInfo[];
@@ -71,30 +125,66 @@ export interface AppStore {
   setShowCreateSession: (v: boolean) => void;
   showMemberList: () => boolean;
   setShowMemberList: (v: boolean) => void;
+  /** Configured launch mode profiles (name, exe path, games folder). */
+  launchModes: () => LaunchMode[];
+  addLaunchMode: (data: Omit<LaunchMode, "id">) => void;
+  removeLaunchMode: (id: string) => void;
+  /** True when the launch mode setup modal should be shown. */
+  showLaunchModeModal: () => boolean;
+  setShowLaunchModeModal: (v: boolean) => void;
   username: () => string;
   addServer: (s: Omit<SavedServer, "id">) => string;
   removeServer: (id: string) => void;
   connectToServer: (id: string) => Promise<void>;
   disconnect: () => Promise<void>;
+  /** Clears the stored auth token for the current server then disconnects. */
+  logout: () => Promise<void>;
   refreshSessions: () => Promise<void>;
   enterSession: (sessionId: string) => Promise<void>;
   createSession: (isPublic: boolean, maxMembers: number) => Promise<void>;
   leaveSession: () => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
   fetchMembers: (sessionId: string) => Promise<void>;
+  /** Host-only: send StartGame signal then launch the local emulator. */
+  startGame: (exePath: string, cfg: LaunchConfig) => Promise<void>;
+  /** Host-only: send StopGame signal (Tauri backend kills all processes on signal receipt). */
+  stopGame: () => Promise<void>;
 }
 
 export function createAppStore(): AppStore {
   const ui = createUiSlice();
   const server = createServerSlice();
   void server.initServers();
+  const config = createConfigSlice();
+  void config.initConfig();
   const session = createSessionSlice(ui.setError);
   const messaging = createMessagingSlice();
+  const [showAuthModal, setShowAuthModal] = createSignal(false);
+  const [loggedInUsername, setLoggedInUsername] = createSignal("");
+  let pendingAuthResolve: ((ok: boolean) => void) | null = null;
+
+  function onAuthSuccess(username: string, token: string): void {
+    setLoggedInUsername(username);
+    setShowAuthModal(false);
+    pendingAuthResolve?.(true);
+    pendingAuthResolve = null;
+    const id = server.activeServerId();
+    if (id) void saveSession(id, username, token);
+  }
+
+  function onAuthCancel(): void {
+    setShowAuthModal(false);
+    pendingAuthResolve?.(false);
+    pendingAuthResolve = null;
+  }
+
   const [selectedTurn, setSelectedTurnSignal] = createSignal<string | null>(
     null,
   );
   const [forceRelay, setForceRelay] = createSignal<boolean>(false);
   const [currentHost, setCurrentHost] = createSignal<string>("");
+  const [isHost, setIsHost] = createSignal<boolean>(false);
+  const [gameStarted, setGameStarted] = createSignal<boolean>(false);
   const [peerStates, setPeerStates] = createSignal<Map<string, string>>(
     new Map(),
   );
@@ -105,10 +195,13 @@ export function createAppStore(): AppStore {
   const peerStateHandle: StreamHandle = { unlisten: null };
   const memberEventHandle: StreamHandle = { unlisten: null };
   const hostChangedHandle: StreamHandle = { unlisten: null };
+  const gameStartedHandle: StreamHandle = { unlisten: null };
+  const gameStoppedHandle: StreamHandle = { unlisten: null };
   // Kept alive for the entire app session; cleaned up in disconnect().
   const connectionLostHandle: StreamHandle = { unlisten: null };
 
   let joiningSession = false;
+  let launchingGame = false;
   async function withJoinGuard(
     fn: () => Promise<SessionPayload>,
   ): Promise<void> {
@@ -127,22 +220,48 @@ export function createAppStore(): AppStore {
   // ── Cross-cutting actions ──────────────────────────────────────────────────
 
   async function connectToServer(id: string): Promise<void> {
+    if (server.activeServerId() === id) return;
+    if (server.connectionStatus() !== "disconnected") await disconnect();
     const srv = server.servers().find((s) => s.id === id);
     if (!srv) return;
     ui.setError("");
     server.setConnectionStatus("connecting");
     try {
-      await invoke("connect", {
-        host: srv.host,
-        port: srv.port,
-        username: srv.username,
-      });
+      await invoke("connect", { host: srv.host, port: srv.port });
+      // Show server as selected immediately so the icon highlights right away.
+      server.setActiveServerId(id);
+
+      // Try to restore a saved token before falling back to the auth modal.
+      const saved = await loadSavedSession(id);
+      let authed = false;
+      if (saved && saved.expiresAt > Date.now()) {
+        await invoke("restore_session", { username: saved.username, token: saved.token });
+        setLoggedInUsername(saved.username);
+        authed = true;
+      } else {
+        authed = await new Promise<boolean>((resolve) => {
+          pendingAuthResolve = resolve;
+          setShowAuthModal(true);
+        });
+      }
+
+      if (!authed) {
+        await invoke("disconnect").catch(() => {});
+        server.setActiveServerId(null);
+        server.setConnectionStatus("disconnected");
+        return;
+      }
+
       const info = await invoke<ServerInfo>("get_server_info");
       server.setServerInfo(info);
-      server.setActiveServerId(id);
       server.setConnectionStatus("connected");
       session.setCurrentSession(null);
       messaging.setActiveChannel("global");
+
+      // Prompt setup if no launch modes have been configured yet.
+      if (config.launchModes().length === 0) {
+        config.setShowLaunchModeModal(true);
+      }
 
       // One-time listener: detect unexpected server disconnect.
       if (!connectionLostHandle.unlisten) {
@@ -181,6 +300,7 @@ export function createAppStore(): AppStore {
       );
     } catch (e) {
       ui.setError(String(e));
+      server.setActiveServerId(null);
       server.setConnectionStatus("disconnected");
     }
   }
@@ -211,6 +331,8 @@ export function createAppStore(): AppStore {
       peerStateHandle,
       memberEventHandle,
       hostChangedHandle,
+      gameStartedHandle,
+      gameStoppedHandle,
       sessionUpdatesHandle,
       globalMembersHandle,
       connectionLostHandle,
@@ -228,18 +350,28 @@ export function createAppStore(): AppStore {
     setSelectedTurnSignal(null);
     setPeerStates(new Map());
     setCurrentHost("");
+    setIsHost(false);
+    setGameStarted(false);
     session.setSessions([]);
     session.setCurrentSession(null);
     messaging.setGlobalMessages([]);
     messaging.setSessionMessages([]);
     session.setMembers([]);
     session.setGlobalMembers([]);
+    setLoggedInUsername("");
+  }
+
+  async function logout(): Promise<void> {
+    const id = server.activeServerId();
+    if (id) await clearSession(id);
+    await disconnect();
   }
 
   async function joinSessionChannel(sess: SessionPayload): Promise<void> {
     setPeerStates(new Map()); // reset on each new session join
     setCurrentHost(sess.host);
-    let isOwner = sess.host === server.username();
+    setIsHost(sess.host === loggedInUsername());
+    setGameStarted(sess.game_started ?? false);
     session.setCurrentSession(sess);
     messaging.setActiveChannel("session");
     messaging.setSessionMessages([]);
@@ -318,7 +450,7 @@ export function createAppStore(): AppStore {
           const hasOtherOpen = [...peerStates().entries()].some(
             ([p, s]) => p !== peer && s === "open",
           );
-          if (!isOwner && !hasOtherOpen) {
+          if (!isHost() && !hasOtherOpen) {
             leaveSession()
               .then(() => {
                 ui.setError(`Could not connect to ${peer}. Leaving session.`);
@@ -334,7 +466,7 @@ export function createAppStore(): AppStore {
     // member-event: server-pushed join/leave signals — works for public and
     // private sessions alike.  Refresh the member list and inject a system message.
     teardownHandle(memberEventHandle);
-    const self = server.username();
+    const self = loggedInUsername();
 
     function handleMemberEvent(payload: {
       username: string;
@@ -404,19 +536,50 @@ export function createAppStore(): AppStore {
     hostChangedHandle.unlisten = await listen<string>("host-changed", (e) => {
       const newHost = e.payload;
       setCurrentHost(newHost);
-      isOwner = newHost === server.username();
+      setIsHost(newHost === loggedInUsername());
       messaging.setSessionMessages((prev) => [
         ...prev,
         {
           username: "",
           content:
-            newHost === server.username()
+            newHost === loggedInUsername()
               ? "You are now the host"
               : `${newHost} is now the host`,
           timestamp: Date.now(),
           system: true,
         },
       ]);
+    });
+
+    // game-started: server fanned out GAME_STARTED signal to all session members.
+    // Non-hosts get a file picker to choose their local emulator executable.
+    teardownHandle(gameStartedHandle);
+    gameStartedHandle.unlisten = await listen<string>("game-started", (e) => {
+      console.log("[game-started] received, isHost=", isHost(), "payload=", e.payload);
+      setGameStarted(true);
+      sysMsg("The host started the game");
+      if (!isHost()) {
+        const cfg = JSON.parse(e.payload) as LaunchConfig;
+        const me = cfg.members[loggedInUsername()];
+        console.log("[game-started] non-host launch: me=", me, "username=", loggedInUsername());
+        if (me?.role !== "Inactive") {
+          void handleNonHostGameStart(me?.player_id ?? 0, cfg);
+        }
+      }
+    });
+
+    // game-stopped: reset UI state. If we're the host and the process exited
+    // naturally (watcher fired this), also tell the server so it fans GAME_STOPPED
+    // out to non-hosts — otherwise they'd stay stuck on "In Game".
+    teardownHandle(gameStoppedHandle);
+    gameStoppedHandle.unlisten = await listen("game-stopped", () => {
+      const wasHost = isHost();
+      const wasRunning = gameStarted();
+      setGameStarted(false);
+      if (wasRunning) sysMsg("The game has ended");
+      if (wasHost && wasRunning) {
+        void invoke("stop_game").catch(() => {});
+      }
     });
   }
 
@@ -459,8 +622,12 @@ export function createAppStore(): AppStore {
     teardownHandle(peerStateHandle);
     teardownHandle(memberEventHandle);
     teardownHandle(hostChangedHandle);
+    teardownHandle(gameStartedHandle);
+    teardownHandle(gameStoppedHandle);
     setPeerStates(new Map());
     setCurrentHost("");
+    setIsHost(false);
+    setGameStarted(false);
     messaging.setSessionMessages([]);
     messaging.setActiveChannel("global");
     session.setMembers([]);
@@ -470,6 +637,127 @@ export function createAppStore(): AppStore {
     server.removeFromList(id);
     if (server.activeServerId() === id) {
       disconnect().catch(() => {});
+    }
+  }
+
+  function sysMsg(content: string): void {
+    messaging.setSessionMessages((prev) => [
+      ...prev,
+      { username: "", content, timestamp: Date.now(), system: true },
+    ]);
+  }
+
+  async function handleNonHostGameStart(
+    playerId: number,
+    cfg: LaunchConfig,
+  ): Promise<void> {
+    const modes = config.launchModes();
+    console.log("[handleNonHostGameStart] platform=", cfg.platform, "modes=", modes.map((m) => m.name));
+    const match =
+      modes.find((m) => m.name.toLowerCase() === cfg.platform.toLowerCase()) ??
+      (modes.length === 1 ? modes[0] : undefined);
+    if (!match) {
+      console.warn("[handleNonHostGameStart] no matching launch mode");
+      sysMsg(
+        modes.length === 0
+          ? `Game launch failed: no launch modes configured — open Weyvelength Setup to add one.`
+          : `Game launch failed: no launch mode named "${cfg.platform}" — open Weyvelength Setup to configure it.`,
+      );
+      return;
+    }
+    console.log("[handleNonHostGameStart] matched mode=", match.name, "exePath=", match.exePath);
+
+    // Hash check — only verify fields the host included.
+    if (cfg.exe_hash || cfg.game_hash) {
+      const gamePath =
+        match.gamesFolder && cfg.game
+          ? `${match.gamesFolder}/${cfg.game}`
+          : null;
+      const [exeHash, gameHash] = await Promise.all([
+        cfg.exe_hash
+          ? invoke<string>("hash_file", { path: match.exePath }).catch(
+              () => null,
+            )
+          : Promise.resolve<string | null>(null),
+        cfg.game_hash && gamePath
+          ? invoke<string>("hash_file", { path: gamePath }).catch(() => null)
+          : Promise.resolve<string | null>(null),
+      ]);
+
+      const mismatches: string[] = [];
+      if (cfg.exe_hash) {
+        if (exeHash === null)
+          mismatches.push(`executable not found at "${match.exePath}"`);
+        else if (exeHash !== cfg.exe_hash)
+          mismatches.push(`executable is a different version from the host's`);
+      }
+      if (cfg.game_hash) {
+        if (!gamePath)
+          mismatches.push(`no games folder configured for "${cfg.platform}"`);
+        else if (gameHash === null)
+          mismatches.push(`"${cfg.game}" not found in ${match.gamesFolder}`);
+        else if (gameHash !== cfg.game_hash)
+          mismatches.push(
+            `"${cfg.game}" is a different version from the host's`,
+          );
+      }
+
+      if (mismatches.length > 0) {
+        console.warn("[handleNonHostGameStart] hash mismatch:", mismatches);
+        sysMsg(`Launch cancelled — hash mismatch: ${mismatches.join("; ")}.`);
+        return;
+      }
+    }
+
+    console.log("[handleNonHostGameStart] invoking launch_game playerId=", playerId);
+    const { exe_hash: _e, game_hash: _g, ...launchCfg } = cfg;
+    await invoke("launch_game", {
+      exePath: match.exePath,
+      playerId,
+      config: JSON.stringify(launchCfg),
+    }).catch((e: unknown) => {
+      sysMsg(`Game launch failed: ${String(e)}`);
+    });
+  }
+
+  async function startGame(exePath: string, cfg: LaunchConfig): Promise<void> {
+    const sess = session.currentSession();
+    if (!sess || !isHost() || launchingGame) return;
+    launchingGame = true;
+    ui.setError("");
+    const payload = JSON.stringify(cfg);
+    try {
+      await invoke("start_game", { sessionId: sess.session_id, payload });
+      setGameStarted(true);
+      const me = cfg.members[loggedInUsername()];
+      if (me?.role !== "Inactive") {
+        // Strip verification-only fields before handing config to the executable.
+        const { exe_hash: _e, game_hash: _g, ...launchCfg } = cfg;
+        await invoke("launch_game", {
+          exePath,
+          playerId: me?.player_id ?? 0,
+          config: JSON.stringify(launchCfg),
+        }).catch((e: unknown) => {
+          sysMsg(`Game launch failed: ${String(e)}`);
+        });
+      }
+    } catch (e) {
+      ui.setError(String(e));
+    } finally {
+      launchingGame = false;
+    }
+  }
+
+  async function stopGame(): Promise<void> {
+    if (!isHost() || !gameStarted()) return;
+    ui.setError("");
+    try {
+      await invoke("stop_game");
+      // Host also receives GAME_STOPPED signal back → setGameStarted(false)
+      // will fire in the listener; set it here for immediate UI response.
+      setGameStarted(false);
+    } catch (e) {
+      ui.setError(String(e));
     }
   }
 
@@ -486,6 +774,10 @@ export function createAppStore(): AppStore {
   }
 
   return {
+    // auth
+    showAuthModal,
+    onAuthSuccess,
+    onAuthCancel,
     // server slice
     servers: server.servers,
     activeServerId: server.activeServerId,
@@ -497,8 +789,10 @@ export function createAppStore(): AppStore {
     forceRelay,
     setForceRelay,
     currentHost,
+    isHost,
+    gameStarted,
     peerStates,
-    username: server.username,
+    username: loggedInUsername,
     addServer: server.addServer,
     removeServer,
     // session slice
@@ -521,12 +815,21 @@ export function createAppStore(): AppStore {
     setShowCreateSession: ui.setShowCreateSession,
     showMemberList: ui.showMemberList,
     setShowMemberList: ui.setShowMemberList,
+    // config slice
+    launchModes: config.launchModes,
+    addLaunchMode: config.addLaunchMode,
+    removeLaunchMode: config.removeLaunchMode,
+    showLaunchModeModal: config.showLaunchModeModal,
+    setShowLaunchModeModal: config.setShowLaunchModeModal,
     // cross-cutting
     connectToServer,
     disconnect,
+    logout,
     enterSession,
     createSession,
     leaveSession,
     sendMessage,
+    startGame,
+    stopGame,
   };
 }

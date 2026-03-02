@@ -2,6 +2,8 @@ syntax = "proto3";
 package weyvelength;
 
 service Weyvelength {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Login(LoginRequest) returns (LoginResponse);
   rpc GetServerInfo(GetServerInfoRequest) returns (GetServerInfoResponse);
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
   rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
@@ -14,7 +16,17 @@ service Weyvelength {
   rpc StreamGlobalMembers(StreamGlobalMembersRequest) returns (stream GlobalMembersEvent);
   rpc SendSignal(SendSignalRequest) returns (SendSignalResponse);
   rpc StreamSignals(StreamSignalsRequest) returns (stream Signal);
+  rpc StartGame(StartGameRequest) returns (StartGameResponse);
+  rpc StopGame(StopGameRequest) returns (StopGameResponse);
 }
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+message RegisterRequest  { string username = 1; string password = 2; }
+message RegisterResponse {}
+
+message LoginRequest  { string username = 1; string password = 2; }
+message LoginResponse { string token = 1; }
 
 // ── Server info ───────────────────────────────────────────────────────────────
 
@@ -41,6 +53,7 @@ message SessionInfo {
   uint32 member_count = 3;
   bool is_public = 4;
   uint32 max_members = 5;
+  bool game_started = 6;
 }
 
 message ListSessionsRequest {}
@@ -62,6 +75,7 @@ message CreateSessionResponse {
   uint32 max_members = 4;
   repeated string existing_peers = 5;
   string host = 6;
+  bool game_started = 7;
 }
 
 message JoinSessionRequest {
@@ -76,6 +90,7 @@ message JoinSessionResponse {
   uint32 max_members = 4;
   repeated string existing_peers = 5;
   string host = 6;
+  bool game_started = 7;
 }
 
 message LeaveSessionRequest {
@@ -137,6 +152,8 @@ enum SignalKind {
   MEMBER_JOINED = 3;
   MEMBER_LEFT = 4;
   HOST_CHANGED = 5;
+  GAME_STARTED = 6;
+  GAME_STOPPED = 7;
 }
 
 message Signal {
@@ -157,3 +174,22 @@ message StreamSignalsRequest {
   string session_id = 1;
   string username = 2;
 }
+
+// ── Game launch ───────────────────────────────────────────────────────────────
+
+message StartGameRequest {
+  string session_id = 1;
+  string username   = 2;
+  // JSON payload: {"game":"...","platform":"...","members":{"user":{"role":"...","player_id":N},...}}
+  // Passed unchanged as the GAME_STARTED signal payload to all session members.
+  string payload    = 3;
+}
+
+message StartGameResponse {}
+
+message StopGameRequest {
+  string session_id = 1;
+  string username   = 2;
+}
+
+message StopGameResponse {}

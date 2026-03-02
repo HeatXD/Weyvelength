@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use dashmap::DashMap;
+use sqlx::SqlitePool;
 use tokio::sync::{broadcast, mpsc};
 
 use crate::codegen::weyvelength::{ChatMessage, Signal};
@@ -27,7 +29,8 @@ pub struct SessionInner {
 }
 
 /// Per-session data. Immutable fields are readable without a lock;
-/// mutable state lives in `inner`.
+/// mutable state lives in `inner`. `game_started` is an atomic flag
+/// that only ever transitions false→true (start) or true→false (stop).
 pub struct SessionData {
     pub id: String,
     pub name: String,
@@ -35,6 +38,7 @@ pub struct SessionData {
     pub max_members: u32,
     /// Broadcast channel for chat messages — cloning the Sender is cheap and lock-free.
     pub tx: broadcast::Sender<ChatMessage>,
+    pub game_started: AtomicBool,
     pub inner: tokio::sync::Mutex<SessionInner>,
 }
 
@@ -43,6 +47,7 @@ pub struct ServerState {
     pub server_name: String,
     pub motd: String,
     pub ice_servers: Vec<IceServerConfig>,
+    pub db: SqlitePool,
 
     /// Session registry. DashMap: concurrent access to different sessions never
     /// contends. Write (insert/remove) takes a shard write-lock briefly.
@@ -68,7 +73,7 @@ pub struct ServerState {
 pub type SharedState = Arc<ServerState>;
 
 impl ServerState {
-    pub fn new(server_name: String, motd: String, ice_servers: Vec<IceServerConfig>) -> Self {
+    pub fn new(server_name: String, motd: String, ice_servers: Vec<IceServerConfig>, db: SqlitePool) -> Self {
         let (chat_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let (session_update_tx, _) = broadcast::channel(16);
         let (global_members_tx, _) = broadcast::channel(16);
@@ -79,6 +84,7 @@ impl ServerState {
             is_public: false,
             max_members: 0,
             tx: chat_tx,
+            game_started: AtomicBool::new(false),
             inner: tokio::sync::Mutex::new(SessionInner {
                 host: String::new(),
                 members: HashSet::new(),
@@ -93,6 +99,7 @@ impl ServerState {
             server_name,
             motd,
             ice_servers,
+            db,
             sessions,
             user_session_index: DashMap::new(),
             session_update_tx,

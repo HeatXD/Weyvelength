@@ -28,6 +28,11 @@ pub async fn handle_stream_messages(
             .global_stream_refs
             .entry(username.clone())
             .or_insert(0);
+        if *entry > 0 {
+            return Err(Status::already_exists(
+                "Username is already in use on this server",
+            ));
+        }
         *entry += 1;
         let first = *entry == 1;
         drop(entry); // release shard lock before the next .await

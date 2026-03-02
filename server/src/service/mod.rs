@@ -8,10 +8,11 @@ use crate::codegen::weyvelength::{
     ChatMessage, CreateSessionRequest, CreateSessionResponse, GetMembersRequest,
     GetMembersResponse, GetServerInfoRequest, GetServerInfoResponse, GlobalMembersEvent, IceServer,
     JoinSessionRequest, JoinSessionResponse, LeaveSessionRequest, LeaveSessionResponse,
-    ListSessionsRequest, ListSessionsResponse, SendMessageRequest, SendMessageResponse,
-    SendSignalRequest, SendSignalResponse, SessionsUpdatedEvent, Signal,
-    StreamGlobalMembersRequest, StreamMessagesRequest, StreamSessionUpdatesRequest,
-    StreamSignalsRequest,
+    ListSessionsRequest, ListSessionsResponse, LoginRequest, LoginResponse, RegisterRequest,
+    RegisterResponse, SendMessageRequest, SendMessageResponse, SendSignalRequest,
+    SendSignalResponse, SessionsUpdatedEvent, Signal, StartGameRequest, StartGameResponse,
+    StopGameRequest, StopGameResponse, StreamGlobalMembersRequest, StreamMessagesRequest,
+    StreamSessionUpdatesRequest, StreamSignalsRequest,
     weyvelength_server::{Weyvelength, WeyvelengthServer},
 };
 use crate::state::{IceServerConfig, ServerState, SharedState};
@@ -27,6 +28,7 @@ impl From<&IceServerConfig> for IceServer {
     }
 }
 
+mod auth;
 mod helpers;
 mod messaging;
 mod sessions;
@@ -42,6 +44,22 @@ pub struct WeyvelengthService {
 
 #[tonic::async_trait]
 impl Weyvelength for WeyvelengthService {
+    // ── auth ─────────────────────────────────────────────────────────────────
+
+    async fn register(
+        &self,
+        request: Request<RegisterRequest>,
+    ) -> Result<Response<RegisterResponse>, Status> {
+        auth::handle_register(&self.state, request.into_inner()).await
+    }
+
+    async fn login(
+        &self,
+        request: Request<LoginRequest>,
+    ) -> Result<Response<LoginResponse>, Status> {
+        auth::handle_login(&self.state, request.into_inner()).await
+    }
+
     // ── server info ──────────────────────────────────────────────────────────
 
     async fn get_server_info(
@@ -70,21 +88,60 @@ impl Weyvelength for WeyvelengthService {
         &self,
         request: Request<CreateSessionRequest>,
     ) -> Result<Response<CreateSessionResponse>, Status> {
-        sessions::handle_create_session(&self.state, request.into_inner()).await
+        let authed = auth::validate_token(&self.state.db, request.metadata()).await?;
+        let req = request.into_inner();
+        if authed != req.username {
+            return Err(Status::permission_denied("Token does not match username"));
+        }
+        sessions::handle_create_session(&self.state, req).await
     }
 
     async fn join_session(
         &self,
         request: Request<JoinSessionRequest>,
     ) -> Result<Response<JoinSessionResponse>, Status> {
-        sessions::handle_join_session(&self.state, request.into_inner()).await
+        let authed = auth::validate_token(&self.state.db, request.metadata()).await?;
+        let req = request.into_inner();
+        if authed != req.username {
+            return Err(Status::permission_denied("Token does not match username"));
+        }
+        sessions::handle_join_session(&self.state, req).await
     }
 
     async fn leave_session(
         &self,
         request: Request<LeaveSessionRequest>,
     ) -> Result<Response<LeaveSessionResponse>, Status> {
-        sessions::handle_leave_session(&self.state, request.into_inner()).await
+        let authed = auth::validate_token(&self.state.db, request.metadata()).await?;
+        let req = request.into_inner();
+        if authed != req.username {
+            return Err(Status::permission_denied("Token does not match username"));
+        }
+        sessions::handle_leave_session(&self.state, req).await
+    }
+
+    async fn start_game(
+        &self,
+        request: Request<StartGameRequest>,
+    ) -> Result<Response<StartGameResponse>, Status> {
+        let authed = auth::validate_token(&self.state.db, request.metadata()).await?;
+        let req = request.into_inner();
+        if authed != req.username {
+            return Err(Status::permission_denied("Token does not match username"));
+        }
+        sessions::handle_start_game(&self.state, req).await
+    }
+
+    async fn stop_game(
+        &self,
+        request: Request<StopGameRequest>,
+    ) -> Result<Response<StopGameResponse>, Status> {
+        let authed = auth::validate_token(&self.state.db, request.metadata()).await?;
+        let req = request.into_inner();
+        if authed != req.username {
+            return Err(Status::permission_denied("Token does not match username"));
+        }
+        sessions::handle_stop_game(&self.state, req).await
     }
 
     // ── messaging ────────────────────────────────────────────────────────────
@@ -93,13 +150,19 @@ impl Weyvelength for WeyvelengthService {
         &self,
         request: Request<SendMessageRequest>,
     ) -> Result<Response<SendMessageResponse>, Status> {
-        messaging::handle_send_message(&self.state, request.into_inner()).await
+        let authed = auth::validate_token(&self.state.db, request.metadata()).await?;
+        let req = request.into_inner();
+        if authed != req.username {
+            return Err(Status::permission_denied("Token does not match username"));
+        }
+        messaging::handle_send_message(&self.state, req).await
     }
 
     async fn get_members(
         &self,
         request: Request<GetMembersRequest>,
     ) -> Result<Response<GetMembersResponse>, Status> {
+        auth::validate_token(&self.state.db, request.metadata()).await?;
         sessions::handle_get_members(&self.state, request.into_inner()).await
     }
 
@@ -109,7 +172,13 @@ impl Weyvelength for WeyvelengthService {
         &self,
         request: Request<SendSignalRequest>,
     ) -> Result<Response<SendSignalResponse>, Status> {
-        signals::handle_send_signal(&self.state, request.into_inner()).await
+        let authed = auth::validate_token(&self.state.db, request.metadata()).await?;
+        let req = request.into_inner();
+        let from = req.signal.as_ref().map(|s| s.from_user.as_str()).unwrap_or("");
+        if authed != from {
+            return Err(Status::permission_denied("Token does not match username"));
+        }
+        signals::handle_send_signal(&self.state, req).await
     }
 
     // ── streaming ────────────────────────────────────────────────────────────
@@ -120,7 +189,12 @@ impl Weyvelength for WeyvelengthService {
         &self,
         request: Request<StreamMessagesRequest>,
     ) -> Result<Response<Self::StreamMessagesStream>, Status> {
-        streams::handle_stream_messages(&self.state, request.into_inner()).await
+        let authed = auth::validate_token(&self.state.db, request.metadata()).await?;
+        let req = request.into_inner();
+        if authed != req.username {
+            return Err(Status::permission_denied("Token does not match username"));
+        }
+        streams::handle_stream_messages(&self.state, req).await
     }
 
     type StreamSignalsStream = UnboundedReceiverStream<Result<Signal, Status>>;
@@ -129,7 +203,12 @@ impl Weyvelength for WeyvelengthService {
         &self,
         request: Request<StreamSignalsRequest>,
     ) -> Result<Response<Self::StreamSignalsStream>, Status> {
-        signals::handle_stream_signals(&self.state, request.into_inner()).await
+        let authed = auth::validate_token(&self.state.db, request.metadata()).await?;
+        let req = request.into_inner();
+        if authed != req.username {
+            return Err(Status::permission_denied("Token does not match username"));
+        }
+        signals::handle_stream_signals(&self.state, req).await
     }
 
     type StreamSessionUpdatesStream = UnboundedReceiverStream<Result<SessionsUpdatedEvent, Status>>;
@@ -158,8 +237,9 @@ pub async fn run(
     server_name: String,
     motd: String,
     ice_servers: Vec<IceServerConfig>,
+    db: sqlx::SqlitePool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let state = Arc::new(ServerState::new(server_name, motd, ice_servers));
+    let state = Arc::new(ServerState::new(server_name, motd, ice_servers, db));
     let service = WeyvelengthService { state };
 
     println!("Weyvelength gRPC server listening on {addr}");

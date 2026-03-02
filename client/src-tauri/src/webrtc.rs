@@ -262,6 +262,28 @@ fn register_game_dc_callbacks(dc: &Arc<RTCDataChannel>, app: &AppHandle, remote:
         eprintln!("[WebRTC] game channel closed with {peer}");
         Box::pin(async {})
     }));
+
+    // Inbound game_dc message → prepend 1-byte from_player_id → UDP to emulator.
+    // Wire format: [u8 from_player_id][game data]
+    let peer_name = remote.to_owned();
+    let app_ref = app.clone();
+    dc.on_message(Box::new(move |msg| {
+        let name = peer_name.clone();
+        let app2 = app_ref.clone();
+        let data = msg.data.clone();
+        Box::pin(async move {
+            let state = app2.state::<AppState>();
+            let tx_opt = state.udp_bridge_tx.lock().unwrap().clone();
+            if let Some(tx) = tx_opt {
+                let from_player_id = state.game_player_ids
+                    .get(&name).map(|r| *r).unwrap_or(0);
+                let mut framed = Vec::with_capacity(1 + data.len());
+                framed.push(from_player_id);
+                framed.extend_from_slice(&data);
+                let _ = tx.try_send(bytes::Bytes::from(framed));
+            }
+        })
+    }));
 }
 
 // ── gRPC signal helper ────────────────────────────────────────────────────────
@@ -278,7 +300,7 @@ pub(crate) async fn send_signal_grpc(
     let channel = state.get_channel().map_err(|e| -> BoxError { e.into() })?;
     let mut client = WeyvelengthClient::new(channel);
     client
-        .send_signal(SendSignalRequest {
+        .send_signal(state.authed_request(SendSignalRequest {
             signal: Some(Signal {
                 from_user: from.to_owned(),
                 to_user: to.to_owned(),
@@ -286,7 +308,7 @@ pub(crate) async fn send_signal_grpc(
                 kind,
                 payload,
             }),
-        })
+        }))
         .await
         .map_err(|e| -> BoxError { e.to_string().into() })?;
     Ok(())

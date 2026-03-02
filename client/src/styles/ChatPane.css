@@ -127,3 +127,104 @@
   color: var(--text-muted);
   font-size: 0.875rem;
 }
+
+.btn-danger {
+  background: var(--error, #ef4444);
+  color: #fff;
+  border: none;
+}
+
+.btn-danger:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+/* Launch modal */
+.launch-section-label {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0.75rem 0 0.25rem;
+}
+
+.launch-row {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-bottom: 0.25rem;
+}
+
+.launch-row-label {
+  flex: 1;
+  font-size: 0.8125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.launch-role-select,
+.launch-id-select {
+  background: var(--input-bg, var(--bg-hover));
+  border: 1px solid var(--border);
+  color: inherit;
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.25rem;
+  font-size: 0.75rem;
+}
+
+.launch-exe-path {
+  flex: 1;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.launch-select-full {
+  width: 100%;
+  background: var(--input-bg, var(--bg-hover));
+  border: 1px solid var(--border);
+  color: inherit;
+  border-radius: 0.25rem;
+  padding: 0.25rem 0.375rem;
+  font-size: 0.8125rem;
+  margin-bottom: 0.25rem;
+}
+
+.game-list-box {
+  max-height: 140px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.game-list-item {
+  padding: 0.3rem 0.5rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-list-item:last-child {
+  border-bottom: none;
+}
+
+.game-list-item:hover {
+  background: var(--bg-hover);
+}
+
+.game-list-item.selected {
+  background: var(--accent);
+  color: #fff;
+}
+
+.launch-hint {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin: 0.25rem 0;
+}

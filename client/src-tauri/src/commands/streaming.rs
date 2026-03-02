@@ -1,7 +1,7 @@
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::oneshot;
-use tonic::transport::Channel;
+use tonic::{self, transport::Channel};
 
 use crate::commands::messaging::GLOBAL_SESSION_ID;
 use crate::commands::sessions::SessionInfoPayload;
@@ -26,14 +26,21 @@ fn spawn_stream_task(
     channel: Channel,
     session_id: String,
     username: String,
+    token: Option<String>,
     event_name: &'static str,
     cancel_rx: oneshot::Receiver<()>,
     on_disconnect: Option<&'static str>,
 ) {
     tauri::async_runtime::spawn(async move {
         let mut client = WeyvelengthClient::new(channel);
+        let mut req = tonic::Request::new(StreamMessagesRequest { session_id, username });
+        if let Some(t) = &token {
+            if let Ok(val) = format!("bearer {t}").parse() {
+                req.metadata_mut().insert("authorization", val);
+            }
+        }
         let resp = match client
-            .stream_messages(StreamMessagesRequest { session_id, username })
+            .stream_messages(req)
             .await
         {
             Ok(r) => r,
@@ -149,6 +156,7 @@ pub async fn start_global_stream(
         state.get_channel()?,
         GLOBAL_SESSION_ID.into(),
         state.get_username()?,
+        state.auth_token.read().unwrap().clone(),
         "global-message",
         rx,
         Some("connection-lost"),
@@ -206,6 +214,7 @@ pub async fn start_session_stream(
         state.get_channel()?,
         session_id,
         state.get_username()?,
+        state.auth_token.read().unwrap().clone(),
         "session-message",
         rx,
         None,

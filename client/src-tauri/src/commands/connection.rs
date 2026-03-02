@@ -2,7 +2,10 @@ use serde::Serialize;
 use tauri::State;
 use tonic::transport::Channel;
 
-use crate::grpc::{weyvelength::GetServerInfoRequest, WeyvelengthClient};
+use crate::grpc::{
+    weyvelength::{GetServerInfoRequest, LoginRequest, RegisterRequest},
+    WeyvelengthClient,
+};
 use crate::state::{AppState, IceServerEntry};
 
 #[derive(Serialize, Clone)]
@@ -25,7 +28,6 @@ pub async fn connect(
     state: State<'_, AppState>,
     host: String,
     port: u16,
-    username: String,
 ) -> Result<(), String> {
     let url = format!("http://{}:{}", host, port);
     let channel = Channel::from_shared(url)
@@ -34,7 +36,7 @@ pub async fn connect(
         .await
         .map_err(|e| e.to_string())?;
     *state.channel.write().unwrap() = Some(channel);
-    *state.username.write().unwrap() = Some(username);
+    *state.server_addr.write().unwrap() = Some(format!("{}:{}", host, port));
     Ok(())
 }
 
@@ -42,9 +44,56 @@ pub async fn connect(
 pub async fn disconnect(state: State<'_, AppState>) -> Result<(), String> {
     state.cancel_all_streams();
     state.close_all_peer_connections().await;
+    crate::commands::webrtc::kill_game_process(&state);
     *state.current_session_id.lock().unwrap() = None;
     *state.channel.write().unwrap() = None;
     *state.username.write().unwrap() = None;
+    *state.server_addr.write().unwrap() = None;
+    *state.auth_token.write().unwrap() = None;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn register(
+    state: State<'_, AppState>,
+    username: String,
+    password: String,
+) -> Result<(), String> {
+    let mut client = WeyvelengthClient::new(state.get_channel()?);
+    client
+        .register(RegisterRequest { username, password })
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn login(
+    state: State<'_, AppState>,
+    username: String,
+    password: String,
+) -> Result<String, String> {
+    let mut client = WeyvelengthClient::new(state.get_channel()?);
+    let resp = client
+        .login(LoginRequest { username: username.clone(), password })
+        .await
+        .map_err(|e| e.to_string())?;
+    let token = resp.into_inner().token;
+    *state.auth_token.write().unwrap() = Some(token.clone());
+    *state.username.write().unwrap() = Some(username);
+    Ok(token)
+}
+
+/// Restore a previously issued session token without re-authenticating.
+/// Called on reconnect when the client has a stored (non-expired) token.
+#[tauri::command]
+pub async fn restore_session(
+    state: State<'_, AppState>,
+    username: String,
+    token: String,
+) -> Result<(), String> {
+    *state.username.write().unwrap() = Some(username);
+    *state.auth_token.write().unwrap() = Some(token);
     Ok(())
 }
 

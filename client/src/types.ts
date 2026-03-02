@@ -3,7 +3,6 @@ export interface SavedServer {
   displayName: string;
   host: string;
   port: number;
-  username: string;
 }
 
 export interface ChatMessage {
@@ -20,6 +19,7 @@ export interface SessionInfo {
   member_count: number;
   is_public: boolean;
   max_members: number;
+  game_started: boolean;
 }
 
 export interface SessionPayload {
@@ -29,6 +29,38 @@ export interface SessionPayload {
   max_members: number;
   existing_peers: string[];
   host: string;
+  game_started: boolean;
+}
+
+export type PlayerRole = "Player" | "Spectator" | "Inactive";
+
+export interface LaunchMode {
+  id: string;
+  /** Display name and platform identifier, e.g. "SNES9x" */
+  name: string;
+  /** Path to the executable */
+  exePath: string;
+  /** Path to folder containing games — omit for standalone executables */
+  gamesFolder?: string;
+}
+
+export interface UserConfig {
+  launchModes: LaunchMode[];
+}
+
+export interface MemberAssignment {
+  role: PlayerRole;
+  player_id: number;
+}
+
+export interface LaunchConfig {
+  game: string;
+  platform: string;
+  members: Record<string, MemberAssignment>;
+  /** SHA-256 of the host's emulator executable */
+  exe_hash?: string;
+  /** SHA-256 of the host's game file */
+  game_hash?: string;
 }
 
 export interface IceServer {

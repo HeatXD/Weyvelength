@@ -26,6 +26,9 @@ struct Cli {
     /// Example: --turn "US East|turn:us.example.com:3478|alice|s3cr3t"
     #[arg(long = "turn", value_name = "NAME|URL|USER|CRED")]
     turn: Vec<String>,
+    /// Path to the SQLite database file for user accounts (created if absent).
+    #[arg(long = "db-path", default_value = "weyvelength.db")]
+    db_path: String,
 }
 
 #[tokio::main]
@@ -60,5 +63,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    service::run(addr, cli.name, cli.motd, ice_servers).await
+    let db = sqlx::SqlitePool::connect(&format!("sqlite:{}?mode=rwc", cli.db_path))
+        .await?;
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS users (
+            username      TEXT PRIMARY KEY,
+            password_hash TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS auth_tokens (
+            token      TEXT PRIMARY KEY,
+            username   TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+            expires_at INTEGER NOT NULL
+         );",
+    )
+    .execute(&db)
+    .await?;
+
+    service::run(addr, cli.name, cli.motd, ice_servers, db).await
 }

@@ -1,9 +1,10 @@
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::sync::atomic::AtomicBool;
 
-use tokio::sync::{oneshot, Mutex as TokioMutex};
-use tonic::transport::Channel;
+use bytes::Bytes;
+use dashmap::DashMap;
+use tokio::sync::{mpsc, oneshot, Mutex as TokioMutex};
+use tonic::{self, transport::Channel};
 
 use webrtc::data_channel::RTCDataChannel;
 use webrtc::peer_connection::RTCPeerConnection;
@@ -27,8 +28,7 @@ pub struct IceServerEntry {
 /// Per-peer state. Call pc.close().await to shut down cleanly.
 pub struct PeerEntry {
     pub pc: Arc<RTCPeerConnection>,
-    /// Unreliable, unordered — reserved for the UDP-proxy game bridge.
-    #[allow(dead_code)]
+    /// Unreliable, unordered — UDP-proxy game bridge data channel.
     pub game_dc: Arc<TokioMutex<Option<Arc<RTCDataChannel>>>>,
 }
 
@@ -43,10 +43,24 @@ pub struct AppState {
     pub ice_servers: RwLock<Vec<IceServerEntry>>,
     /// Name of the TURN server the user has selected (None = skip TURN, direct only).
     pub selected_turn: RwLock<Option<String>>,
-    pub peer_connections: Mutex<HashMap<String, PeerEntry>>,
+    pub peer_connections: DashMap<String, PeerEntry>,
     pub current_session_id: Mutex<Option<String>>,
     /// When true, WebRTC is configured to use only TURN relay candidates.
     pub force_relay: AtomicBool,
+    /// "host:port" stored at connect time; passed to spawned executables as --wl-server.
+    pub server_addr: RwLock<Option<String>>,
+    /// Bridge channel: game_dc on_message callbacks push framed data here;
+    /// a separate task reads it and sends via UDP to the local emulator.
+    pub udp_bridge_tx: Arc<Mutex<Option<mpsc::Sender<Bytes>>>>,
+    /// Cancels the UDP listener task on leave/disconnect.
+    pub udp_listener_cancel: Mutex<Option<oneshot::Sender<()>>>,
+    /// Cancels the process-watcher task (and triggers child kill) when called externally.
+    pub game_watch_cancel: Mutex<Option<oneshot::Sender<()>>>,
+    /// Maps peer username → player_id for the active game session.
+    /// Populated by launch_game; read by game_dc on_message callbacks.
+    pub game_player_ids: DashMap<String, u8>,
+    /// Bearer token obtained from the server's Login RPC.
+    pub auth_token: RwLock<Option<String>>,
 }
 
 impl AppState {
@@ -61,9 +75,15 @@ impl AppState {
             session_messages_cancel_tx: Mutex::new(None),
             ice_servers: RwLock::new(Vec::new()),
             selected_turn: RwLock::new(None),
-            peer_connections: Mutex::new(HashMap::new()),
+            peer_connections: DashMap::new(),
             current_session_id: Mutex::new(None),
             force_relay: AtomicBool::new(false),
+            server_addr: RwLock::new(None),
+            udp_bridge_tx: Arc::new(Mutex::new(None)),
+            udp_listener_cancel: Mutex::new(None),
+            game_watch_cancel: Mutex::new(None),
+            game_player_ids: DashMap::new(),
+            auth_token: RwLock::new(None),
         }
     }
 
@@ -83,13 +103,20 @@ impl AppState {
             .ok_or_else(|| "No username set".into())
     }
 
-    /// Look up a peer connection by username. Locks briefly; does not hold across awaits.
+    /// Wraps `inner` in a tonic Request with the auth token injected as metadata.
+    pub fn authed_request<T>(&self, inner: T) -> tonic::Request<T> {
+        let mut req = tonic::Request::new(inner);
+        if let Some(token) = self.auth_token.read().unwrap().as_deref() {
+            if let Ok(val) = format!("bearer {token}").parse() {
+                req.metadata_mut().insert("authorization", val);
+            }
+        }
+        req
+    }
+
+    /// Look up a peer connection by username.
     pub fn get_peer_connection(&self, peer: &str) -> Option<Arc<RTCPeerConnection>> {
-        self.peer_connections
-            .lock()
-            .unwrap()
-            .get(peer)
-            .map(|e| e.pc.clone())
+        self.peer_connections.get(peer).map(|e| e.pc.clone())
     }
 
     fn kind_mutex(&self, kind: &StreamKind) -> &Mutex<Option<oneshot::Sender<()>>> {
@@ -148,15 +175,12 @@ impl AppState {
 
     /// Close all peer connections gracefully, calling pc.close().await on each.
     pub async fn close_all_peer_connections(&self) {
-        let entries: Vec<Arc<RTCPeerConnection>> = {
-            self.peer_connections
-                .lock()
-                .unwrap()
-                .drain()
-                .map(|(_, e)| e.pc)
-                .collect()
-        };
-        for pc in entries {
+        let pcs: Vec<Arc<RTCPeerConnection>> = self.peer_connections
+            .iter()
+            .map(|r| r.value().pc.clone())
+            .collect();
+        self.peer_connections.clear();
+        for pc in pcs {
             let _ = pc.close().await;
         }
     }

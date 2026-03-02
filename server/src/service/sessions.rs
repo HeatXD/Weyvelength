@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use tokio::sync::{Mutex, broadcast};
@@ -7,7 +8,8 @@ use tonic::{Response, Status};
 use crate::codegen::weyvelength::{
     CreateSessionRequest, CreateSessionResponse, GetMembersRequest, GetMembersResponse,
     JoinSessionRequest, JoinSessionResponse, LeaveSessionRequest, LeaveSessionResponse,
-    ListSessionsRequest, ListSessionsResponse, SignalKind,
+    ListSessionsRequest, ListSessionsResponse, SignalKind, StartGameRequest, StartGameResponse,
+    StopGameRequest, StopGameResponse,
 };
 use crate::session::{LeaveInfo, generate_lobby_code, join_session_inner, leave_session_inner};
 use crate::state::{
@@ -42,6 +44,7 @@ pub async fn handle_create_session(
         is_public: req.is_public,
         max_members,
         tx,
+        game_started: AtomicBool::new(false),
         inner: Mutex::new(SessionInner {
             host: req.username.clone(),
             members: HashSet::new(),
@@ -74,6 +77,7 @@ pub async fn handle_create_session(
         max_members,
         existing_peers: vec![],
         host: req.username,
+        game_started: false,
     }))
 }
 
@@ -89,6 +93,10 @@ pub async fn handle_join_session(
         .ok_or_else(|| Status::not_found("Session not found"))?
         .value()
         .clone();
+
+    if session.game_started.load(Ordering::Relaxed) {
+        return Err(Status::failed_precondition("Game is already in progress"));
+    }
 
     {
         let inner = session.inner.lock().await;
@@ -143,6 +151,7 @@ pub async fn handle_join_session(
         max_members: session.max_members,
         existing_peers,
         host,
+        game_started: session.game_started.load(Ordering::Relaxed),
     }))
 }
 
@@ -205,4 +214,81 @@ pub async fn handle_get_members(
         .clone();
     let members = session.inner.lock().await.members.iter().cloned().collect();
     Ok(Response::new(GetMembersResponse { members }))
+}
+
+pub async fn handle_start_game(
+    state: &SharedState,
+    req: StartGameRequest,
+) -> Result<Response<StartGameResponse>, Status> {
+    let session = state
+        .sessions
+        .get(&req.session_id)
+        .ok_or_else(|| Status::not_found("Session not found"))?
+        .value()
+        .clone();
+
+    let senders = {
+        let inner = session.inner.lock().await;
+        if inner.host != req.username {
+            return Err(Status::permission_denied("Only the host can start the game"));
+        }
+        inner.signal_senders.values().cloned().collect::<Vec<_>>()
+    };
+
+    // Idempotent: if already started, do nothing.
+    if session.game_started.swap(true, Ordering::Relaxed) {
+        return Ok(Response::new(StartGameResponse {}));
+    }
+
+    if session.is_public {
+        notify_sessions_changed(&state.session_update_tx);
+    }
+
+    fanout_signal(
+        &senders,
+        SignalKind::GameStarted,
+        &req.username,
+        &req.session_id,
+        &req.payload,
+    );
+
+    println!("[session] game started in {} by {}", req.session_id, req.username);
+    Ok(Response::new(StartGameResponse {}))
+}
+
+pub async fn handle_stop_game(
+    state: &SharedState,
+    req: StopGameRequest,
+) -> Result<Response<StopGameResponse>, Status> {
+    let session = state
+        .sessions
+        .get(&req.session_id)
+        .ok_or_else(|| Status::not_found("Session not found"))?
+        .value()
+        .clone();
+
+    let senders = {
+        let inner = session.inner.lock().await;
+        if inner.host != req.username {
+            return Err(Status::permission_denied("Only the host can stop the game"));
+        }
+        inner.signal_senders.values().cloned().collect::<Vec<_>>()
+    };
+
+    session.game_started.store(false, Ordering::Relaxed);
+
+    if session.is_public {
+        notify_sessions_changed(&state.session_update_tx);
+    }
+
+    fanout_signal(
+        &senders,
+        SignalKind::GameStopped,
+        &req.username,
+        &req.session_id,
+        "",
+    );
+
+    println!("[session] game stopped in {} by {}", req.session_id, req.username);
+    Ok(Response::new(StopGameResponse {}))
 }
