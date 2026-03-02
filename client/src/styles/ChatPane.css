@@ -97,6 +97,13 @@
   color: var(--accent);
 }
 
+.member-ping {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.6;
+}
+
 .members-empty {
   padding: 0.5rem 0.875rem;
   color: var(--text-muted);

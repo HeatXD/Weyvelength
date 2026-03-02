@@ -124,6 +124,8 @@ export interface AppStore {
   gameStarted: () => boolean;
   /** WebRTC connection state per peer username. Values: "checking" | "connected" | "open" | "disconnected" | "failed" | "closed" */
   peerStates: () => Map<string, string>;
+  /** Measured RTT in ms per peer username, populated ~5 s after channel open. */
+  peerPings: () => Map<string, number>;
   sessions: () => SessionInfo[];
   currentSession: () => SessionPayload | null;
   activeChannel: () => ActiveChannel;
@@ -202,11 +204,15 @@ export function createAppStore(): AppStore {
   const [peerStates, setPeerStates] = createSignal<Map<string, string>>(
     new Map(),
   );
+  const [peerPings, setPeerPings] = createSignal<Map<string, number>>(
+    new Map(),
+  );
 
   // Presence + update stream handles (touch index.ts state only, no dedicated slice needed)
   const sessionUpdatesHandle: StreamHandle = { unlisten: null };
   const globalMembersHandle: StreamHandle = { unlisten: null };
   const peerStateHandle: StreamHandle = { unlisten: null };
+  const pingHandle: StreamHandle = { unlisten: null };
   const memberEventHandle: StreamHandle = { unlisten: null };
   const hostChangedHandle: StreamHandle = { unlisten: null };
   const gameStartedHandle: StreamHandle = { unlisten: null };
@@ -346,6 +352,7 @@ export function createAppStore(): AppStore {
       messaging.globalHandle,
       messaging.sessionHandle,
       peerStateHandle,
+      pingHandle,
       memberEventHandle,
       hostChangedHandle,
       gameStartedHandle,
@@ -366,6 +373,7 @@ export function createAppStore(): AppStore {
     server.setServerInfo(null);
     setSelectedTurnSignal(null);
     setPeerStates(new Map());
+    setPeerPings(new Map());
     setCurrentHost("");
     setIsHost(false);
     setGameStarted(false);
@@ -480,6 +488,20 @@ export function createAppStore(): AppStore {
       },
     );
 
+    // peer-ping: RTT measurement results from the ping DC
+    teardownHandle(pingHandle);
+    pingHandle.unlisten = await listen<{ peer: string; latency_ms: number }>(
+      "peer-ping",
+      (e) => {
+        const { peer, latency_ms } = e.payload;
+        setPeerPings((prev) => {
+          const next = new Map(prev);
+          next.set(peer, latency_ms);
+          return next;
+        });
+      },
+    );
+
     // member-event: server-pushed join/leave signals, works for public and
     // private sessions alike.  Refresh the member list and inject a system message.
     teardownHandle(memberEventHandle);
@@ -506,6 +528,7 @@ export function createAppStore(): AppStore {
       } else {
         // Peer left, close our side of the WebRTC connection.
         invoke("close_peer_connection", { peer: username }).catch(() => {});
+        setPeerPings((prev) => { const n = new Map(prev); n.delete(username); return n; });
         if (connectingPeers.has(username)) {
           // Never finished connecting; replace the "connecting…" message in-place.
           connectingPeers.delete(username);
@@ -647,11 +670,13 @@ export function createAppStore(): AppStore {
     ]);
     teardownHandle(messaging.sessionHandle);
     teardownHandle(peerStateHandle);
+    teardownHandle(pingHandle);
     teardownHandle(memberEventHandle);
     teardownHandle(hostChangedHandle);
     teardownHandle(gameStartedHandle);
     teardownHandle(gameStoppedHandle);
     setPeerStates(new Map());
+    setPeerPings(new Map());
     setCurrentHost("");
     setIsHost(false);
     setGameStarted(false);
@@ -832,6 +857,7 @@ export function createAppStore(): AppStore {
     isHost,
     gameStarted,
     peerStates,
+    peerPings,
     username: loggedInUsername,
     addServer: server.addServer,
     removeServer,

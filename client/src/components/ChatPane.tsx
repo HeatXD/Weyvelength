@@ -238,6 +238,7 @@ export default function ChatPane() {
                               ? null
                               : (store.peerStates().get(m) ?? null);
                           const dotClass = () => {
+                            if (isSelf()) return "peer-dot peer-dot-open";
                             switch (connState()) {
                               case "checking":
                                 return "peer-dot peer-dot-checking";
@@ -261,9 +262,18 @@ export default function ChatPane() {
                                 class={dotClass()}
                                 title={connState() ?? "not yet connected"}
                               />
-                              {m}
-                              {isHost() ? " ★" : ""}
-                              {isSelf() ? " (you)" : ""}
+                              <span>
+                                {m}
+                                {isHost() ? " ★" : ""}
+                                {isSelf() ? " (you)" : ""}
+                              </span>
+                              <Show when={!isSelf()}>
+                                <span class="member-ping">
+                                  {store.peerPings().get(m) !== undefined
+                                    ? `${store.peerPings().get(m)}ms`
+                                    : "..."}
+                                </span>
+                              </Show>
                             </div>
                           );
                         }}

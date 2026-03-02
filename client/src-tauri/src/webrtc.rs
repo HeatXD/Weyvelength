@@ -52,6 +52,12 @@ pub struct MemberEventPayload {
     pub joined: bool,
 }
 
+#[derive(Serialize, Clone)]
+pub struct PeerPingPayload {
+    pub peer: String,
+    pub latency_ms: u64,
+}
+
 // ── BoxError ──────────────────────────────────────────────────────────────────
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -189,6 +195,15 @@ pub async fn create_peer_connection(
         register_game_dc_callbacks(&game_dc, &app, &remote_username);
         *game_dc_slot.lock().await = Some(game_dc);
 
+        // Create the ping channel for RTT measurement (unreliable, unordered).
+        let ping_init = RTCDataChannelInit {
+            ordered: Some(false),
+            max_retransmits: Some(0),
+            ..Default::default()
+        };
+        let ping_dc = pc.create_data_channel("ping", Some(ping_init)).await?;
+        register_ping_dc_callbacks(&ping_dc, &app, &remote_username);
+
         // Create offer and send.
         let offer = pc.create_offer(None).await?;
         pc.set_local_description(offer.clone()).await?;
@@ -217,6 +232,8 @@ pub async fn create_peer_connection(
                 if label == "game" {
                     register_game_dc_callbacks(&dc, &app3, &peer);
                     *game_slot3.lock().await = Some(dc);
+                } else if label == "ping" {
+                    register_ping_dc_callbacks(&dc, &app3, &peer);
                 }
             })
         }));
@@ -281,6 +298,65 @@ fn register_game_dc_callbacks(dc: &Arc<RTCDataChannel>, app: &AppHandle, remote:
                 framed.push(from_player_id);
                 framed.extend_from_slice(&data);
                 let _ = tx.try_send(bytes::Bytes::from(framed));
+            }
+        })
+    }));
+}
+
+fn register_ping_dc_callbacks(dc: &Arc<RTCDataChannel>, app: &AppHandle, remote: &str) {
+    // on_open: spawn a task that sends a PING every 5 seconds until the channel closes.
+    let dc_ping = dc.clone();
+    dc.on_open(Box::new(move || {
+        let dc2 = dc_ping.clone();
+        Box::pin(async move {
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                    let ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    let mut buf = [0u8; 9];
+                    buf[0] = 0x01;
+                    buf[1..].copy_from_slice(&ts.to_le_bytes());
+                    if dc2.send(&bytes::Bytes::copy_from_slice(&buf)).await.is_err() {
+                        break;
+                    }
+                }
+            });
+        })
+    }));
+
+    // on_message: reply to PING (0x01) with PONG (0x02); on PONG compute and emit RTT.
+    let dc_pong = dc.clone();
+    let app2 = app.clone();
+    let peer = remote.to_owned();
+    dc.on_message(Box::new(move |msg| {
+        let dc3 = dc_pong.clone();
+        let app3 = app2.clone();
+        let peer2 = peer.clone();
+        let data = msg.data.clone();
+        Box::pin(async move {
+            if data.len() < 9 {
+                return;
+            }
+            match data[0] {
+                0x01 => {
+                    let mut pong = [0u8; 9];
+                    pong[0] = 0x02;
+                    pong[1..].copy_from_slice(&data[1..9]);
+                    let _ = dc3.send(&bytes::Bytes::copy_from_slice(&pong)).await;
+                }
+                0x02 => {
+                    let ts = u64::from_le_bytes(data[1..9].try_into().unwrap_or([0u8; 8]));
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    let latency_ms = now.saturating_sub(ts);
+                    let _ = app3.emit("peer-ping", PeerPingPayload { peer: peer2, latency_ms });
+                }
+                _ => {}
             }
         })
     }));
