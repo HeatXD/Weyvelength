@@ -1,5 +1,5 @@
 import { createSignal, For, Match, Show, Switch, createMemo } from "solid-js";
-import { KeyRound, Plus, Users } from "lucide-solid";
+import { KeyRound, LogOut, Plus, Users } from "lucide-solid";
 
 import { useStore } from "../App";
 import { FormField } from "./FormField";
@@ -34,6 +34,17 @@ export default function ChannelPanel() {
                   "Server"}
               </div>
               <div class="server-motd">{store.serverInfo()?.motd ?? ""}</div>
+              <div class="server-user-row">
+                <span class="server-username">{store.username()}</span>
+                <button
+                  class="logout-btn"
+                  title="Log out"
+                  onClick={() => void store.logout()}
+                >
+                  <LogOut size={12} stroke-width={2} />
+                  Log out
+                </button>
+              </div>
               <Show when={hasTurnServers()}>
                 <br />
                 <div class="turn-selector">
@@ -51,19 +62,19 @@ export default function ChannelPanel() {
                     disabled={!!store.currentSession()}
                   />
                 </div>
+                <div class="force-relay-row">
+                  <span class="turn-selector-label">Force Relay Usage</span>
+                  <button
+                    role="switch"
+                    aria-checked={store.forceRelay()}
+                    class={`relay-toggle${store.forceRelay() ? " relay-toggle-on" : ""}${!!store.currentSession() ? " relay-toggle-disabled" : ""}`}
+                    onClick={() =>
+                      !store.currentSession() &&
+                      store.setForceRelay(!store.forceRelay())
+                    }
+                  />
+                </div>
               </Show>
-              <div class="force-relay-row">
-                <span class="turn-selector-label">Force Relay Usage</span>
-                <button
-                  role="switch"
-                  aria-checked={store.forceRelay()}
-                  class={`relay-toggle${store.forceRelay() ? " relay-toggle-on" : ""}${!!store.currentSession() ? " relay-toggle-disabled" : ""}`}
-                  onClick={() =>
-                    !store.currentSession() &&
-                    store.setForceRelay(!store.forceRelay())
-                  }
-                />
-              </div>
             </div>
 
             <div class="channel-list">
@@ -140,7 +151,10 @@ export default function ChannelPanel() {
                     session.max_members > 0 &&
                     session.member_count >= session.max_members;
                   const isDisabled = () =>
-                    !isCurrent() && (!!store.currentSession() || isFull());
+                    !isCurrent() &&
+                    (!!store.currentSession() ||
+                      isFull() ||
+                      session.game_started);
                   return (
                     <div
                       class={`session-item${isCurrent() ? " session-item-current" : ""}${isDisabled() ? " session-item-disabled" : ""}`}
@@ -157,7 +171,10 @@ export default function ChannelPanel() {
                           {session.member_count}/{session.max_members}
                         </span>
                       </Show>
-                      <Show when={isFull() && !isCurrent()}>
+                      <Show when={session.game_started}>
+                        <span class="session-badge badge-in-game">In Game</span>
+                      </Show>
+                      <Show when={isFull() && !isCurrent() && !session.game_started}>
                         <span class="session-badge badge-full">Full</span>
                       </Show>
                     </div>
@@ -206,6 +223,7 @@ export default function ChannelPanel() {
           </div>
         </Modal>
       </Show>
+
     </>
   );
 }

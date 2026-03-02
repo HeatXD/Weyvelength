@@ -2,11 +2,13 @@ import { createContext, onCleanup, Show, useContext } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 
 import AddServerModal from "./components/AddServerModal";
+import AuthModal from "./components/AuthModal";
 import ChannelPanel from "./components/ChannelPanel";
 import ChatPane from "./components/ChatPane";
 import CreateSessionModal from "./components/CreateSessionModal";
 import MemberListPanel from "./components/MemberListPanel";
 import ServerSidebar from "./components/ServerSidebar";
+import SetupModal from "./components/SetupModal";
 import Toast from "./components/Toast";
 import { AppStore, createAppStore } from "./store";
 import "./styles/App.css";
@@ -39,11 +41,17 @@ function App() {
         <ChatPane />
         <MemberListPanel />
       </div>
+      <Show when={store.showAuthModal()}>
+        <AuthModal />
+      </Show>
       <Show when={store.showAddServer()}>
         <AddServerModal />
       </Show>
       <Show when={store.showCreateSession()}>
         <CreateSessionModal />
+      </Show>
+      <Show when={store.showLaunchModeModal()}>
+        <SetupModal />
       </Show>
       <Toast />
     </StoreContext.Provider>

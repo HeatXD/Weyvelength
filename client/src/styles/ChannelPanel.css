@@ -32,6 +32,40 @@
   white-space: nowrap;
 }
 
+.server-user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.5rem;
+}
+
+.server-username {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logout-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.25rem;
+  border-radius: 0.25rem;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+
+.logout-btn:hover {
+  color: var(--danger, #f87171);
+}
+
 .channel-list {
   padding: 0.5rem 0;
   border-bottom: 1px solid var(--border);
@@ -236,3 +270,4 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+
