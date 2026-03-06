@@ -31,17 +31,20 @@ if not exist "%VCVARS%" (
     exit /b 1
 )
 
-:: ── 3. Compile pingpong.c ─────────────────────────────────────────────────────
+:: ── 3. Compile pingpong.cpp ───────────────────────────────────────────────────
 echo [build] Setting up MSVC environment...
 call "%VCVARS%" >nul 2>&1
 
-echo [build] Compiling examples\pingpong.c...
-cl /nologo /I. examples\pingpong.c target\debug\wl_sdk.lib Ws2_32.lib Userenv.lib ntdll.lib /Fe:pingpong.exe
+echo [build] Compiling examples\pingpong.cpp...
+cl /nologo /EHsc /std:c++17 /I. examples\pingpong.cpp target\debug\wl_sdk.dll.lib /Fe:pingpong.exe
 if errorlevel 1 (
     echo [build] ERROR: Compilation failed
     exit /b 1
 )
 
+:: DLL must be findable at runtime
+copy /y target\debug\wl_sdk.dll wl_sdk.dll >nul
+
 echo.
-echo [build] Done: pingpong.exe
+echo [build] Done: pingpong.exe  (wl_sdk.dll copied alongside)
 endlocal

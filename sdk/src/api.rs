@@ -1,22 +1,15 @@
 // C API boundary, argument conversion only; all logic is in core.
 
 use std::ffi::{c_int, c_void};
-use std::ptr;
 
 use crate::core;
-use crate::state::{WlEvent, error_lock, set_error};
+use crate::state::{RecvCallbackFn, error_lock, set_error};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn wl_init(bridge_port: c_int, local_player_id: u8) -> c_int {
     match core::init(bridge_port, local_player_id) {
-        Ok(()) => {
-            set_error("OK");
-            0
-        }
-        Err(e) => {
-            set_error(&e);
-            -1
-        }
+        Ok(()) => { set_error("OK"); 0 }
+        Err(e) => { set_error(&e); -1 }
     }
 }
 
@@ -36,19 +29,22 @@ pub extern "C" fn wl_local_player_id() -> u8 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wl_poll(out_count: *mut c_int) -> *const WlEvent {
-    if out_count.is_null() {
-        return ptr::null();
+pub unsafe extern "C" fn wl_set_callback(
+    cb: Option<RecvCallbackFn>,
+    userdata: *mut c_void,
+) {
+    match cb {
+        Some(func) => core::set_callback(func, userdata),
+        None => core::clear_callback(),
     }
-    let (ptr, count) = core::poll();
-    unsafe {
-        *out_count = count;
-    }
-    ptr
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn wl_send(to_player_id: u8, data: *const c_void, data_len: c_int) -> c_int {
+pub unsafe extern "C" fn wl_send(
+    to_player_id: u8,
+    data: *const c_void,
+    data_len: c_int,
+) -> c_int {
     if data_len < 0 || (data_len > 0 && data.is_null()) {
         set_error("wl_send: invalid arguments");
         return -1;
@@ -60,9 +56,6 @@ pub unsafe extern "C" fn wl_send(to_player_id: u8, data: *const c_void, data_len
     };
     match core::send(to_player_id, payload) {
         Ok(()) => 0,
-        Err(e) => {
-            set_error(format!("wl_send: {e}"));
-            -1
-        }
+        Err(e) => { set_error(format!("wl_send: {e}")); -1 }
     }
 }

@@ -1,47 +1,53 @@
 // Internal types, globals, and helpers, not part of the public C API.
 
-use std::ffi::CString;
+use std::ffi::{CString, c_int, c_void};
 use std::sync::{Mutex, OnceLock};
-
-use tokio::sync::{mpsc, oneshot};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 pub const WL_PACKET_MAX: usize = 1400;
 
-// ── Public C-compatible event struct ──────────────────────────────────────────
+// ── Receive callback ──────────────────────────────────────────────────────────
 //
-// Must exactly mirror WL_Event in wl-sdk.h.
-// C layout: kind(u32,4) + from_player_id(u8,1) + _pad([u8;3],3)
-//           + data_len(i32,4) + data([u8;1400],1400)  = 1412 bytes total
+// Called from the background IO thread the instant a packet arrives.
+// `data` points into the SDK's receive buffer — valid only for the duration
+// of the callback. wl_send() is safe to call from inside the callback.
 
-#[repr(C)]
-pub struct WlEvent {
-    pub kind: u32,
-    pub from_player_id: u8,
-    pub _pad: [u8; 3],
-    pub data_len: i32,
-    pub data: [u8; WL_PACKET_MAX],
+pub type RecvCallbackFn = unsafe extern "C" fn(
+    from_player_id: u8,
+    data: *const c_void,
+    data_len: c_int,
+    userdata: *mut c_void,
+);
+
+#[derive(Copy, Clone)]
+pub struct RecvCallback {
+    pub func: RecvCallbackFn,
+    pub userdata: *mut c_void,
 }
+
+// Safety: the caller promises func and userdata are safe to use from any thread.
+unsafe impl Send for RecvCallback {}
+unsafe impl Sync for RecvCallback {}
 
 // ── SDK state ─────────────────────────────────────────────────────────────────
 
 pub struct SdkState {
-    /// Inbound events pushed by run_io; drained synchronously by wl_poll.
-    pub event_rx: mpsc::UnboundedReceiver<WlEvent>,
-    /// Outbound frames pulled by run_io; pushed synchronously by wl_send.
-    pub send_tx: mpsc::UnboundedSender<Vec<u8>>,
-    /// Dropping this field signals run_io to exit.
-    pub _shutdown_tx: oneshot::Sender<()>,
+    pub rt: tokio::runtime::Runtime,
     pub local_player_id: u8,
-    /// Runtime dropped last (field order), blocks until run_io finishes.
-    pub _runtime: tokio::runtime::Runtime,
+    /// Game pushes outbound frames here — lock-free, never blocks.
+    pub outbound_tx: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+    /// Drop both to signal both tasks to stop.
+    pub shutdown_tx: Option<(
+        tokio::sync::oneshot::Sender<()>,
+        tokio::sync::oneshot::Sender<()>,
+    )>,
 }
 
 // ── Globals ───────────────────────────────────────────────────────────────────
 
 pub static GLOBAL: Mutex<Option<SdkState>> = Mutex::new(None);
-pub static POLL_BUF: Mutex<Vec<WlEvent>> = Mutex::new(Vec::new());
+pub static CALLBACK: Mutex<Option<RecvCallback>> = Mutex::new(None);
 
 static ERROR: OnceLock<Mutex<CString>> = OnceLock::new();
 
@@ -52,20 +58,4 @@ pub fn error_lock() -> &'static Mutex<CString> {
 pub fn set_error(msg: impl AsRef<str>) {
     let mut lock = error_lock().lock().unwrap();
     *lock = CString::new(msg.as_ref()).unwrap_or_else(|_| CString::new("error").unwrap());
-}
-
-// ── Layout verification ───────────────────────────────────────────────────────
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn wl_event_layout() {
-        assert_eq!(std::mem::size_of::<WlEvent>(), 1412);
-        assert_eq!(std::mem::offset_of!(WlEvent, kind), 0);
-        assert_eq!(std::mem::offset_of!(WlEvent, from_player_id), 4);
-        assert_eq!(std::mem::offset_of!(WlEvent, data_len), 8);
-        assert_eq!(std::mem::offset_of!(WlEvent, data), 12);
-    }
 }

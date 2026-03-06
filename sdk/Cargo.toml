@@ -1,10 +1,10 @@
 [package]
-name = "wl-sdk"
+name = "wl_sdk"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "io-util", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros"] }
