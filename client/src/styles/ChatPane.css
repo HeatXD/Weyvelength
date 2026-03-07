@@ -146,6 +146,41 @@
 }
 
 /* Launch modal */
+.launch-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.launch-body-split {
+  flex-direction: row;
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.launch-left {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.launch-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.launch-right .launch-section-label:first-child {
+  margin-top: 0;
+}
+
+.game-list-box-fill {
+  flex: 1;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
 .launch-section-label {
   font-size: 0.6875rem;
   color: var(--text-muted);

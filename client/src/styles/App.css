@@ -216,6 +216,11 @@ input::placeholder {
   max-width: 440px;
 }
 
+/* Extra-wide variant, for launch modal in split (mode + game list) layout */
+.modal-xl {
+  max-width: 660px;
+}
+
 .modal-header {
   display: flex;
   align-items: center;

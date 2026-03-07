@@ -326,100 +326,105 @@ export default function ChatPane() {
         <Modal
           title="Launch Game"
           onClose={() => setShowLaunchModal(false)}
-          class="modal-lg"
+          class={selectedMode()?.gamesFolder ? "modal-xl" : "modal-lg"}
         >
-          {/* Launch mode picker */}
-          <div class="launch-section-label">Launch Mode</div>
-          <Show
-            when={store.launchModes().length > 0}
-            fallback={
-              <p class="launch-hint">
-                No launch modes configured. Add one in Setup.
-              </p>
-            }
-          >
-            <select
-              class="launch-select-full"
-              value={selectedModeId()}
-              onChange={(e) => handleSelectMode(e.currentTarget.value)}
-            >
-              <For each={store.launchModes()}>
-                {(m) => <option value={m.id}>{m.name}</option>}
-              </For>
-            </select>
-          </Show>
+          <div class={`launch-body${selectedMode()?.gamesFolder ? " launch-body-split" : ""}`}>
+            {/* Left column: mode picker + player assignments */}
+            <div class="launch-left">
+              <div class="launch-section-label">Launch Mode</div>
+              <Show
+                when={store.launchModes().length > 0}
+                fallback={
+                  <p class="launch-hint">
+                    No launch modes configured. Add one in Setup.
+                  </p>
+                }
+              >
+                <select
+                  class="launch-select-full"
+                  value={selectedModeId()}
+                  onChange={(e) => handleSelectMode(e.currentTarget.value)}
+                >
+                  <For each={store.launchModes()}>
+                    {(m) => <option value={m.id}>{m.name}</option>}
+                  </For>
+                </select>
+              </Show>
 
-          {/* Game picker, only shown when the mode has a games folder */}
-          <Show when={selectedMode()?.gamesFolder}>
-            <div class="launch-section-label">Game</div>
-            <Show
-              when={gameList().length > 0}
-              fallback={
-                <p class="launch-hint">
-                  No games found in the configured folder.
-                </p>
-              }
-            >
-              <div class="game-list-box">
-                <For each={gameList()}>
-                  {(g) => (
-                    <div
-                      class={`game-list-item${selectedGame() === g ? " selected" : ""}`}
-                      onClick={() => setSelectedGame(g)}
-                    >
-                      {g}
+              <div class="launch-section-label">Player Assignments</div>
+              <For each={store.members()}>
+                {(member) => {
+                  const a = () =>
+                    assignments()[member] ?? {
+                      role: "Inactive" as PlayerRole,
+                      playerId: 0,
+                    };
+                  return (
+                    <div class="launch-row">
+                      <span class="launch-row-label">{member}</span>
+                      <select
+                        class="launch-role-select"
+                        value={a().role}
+                        onChange={(e) =>
+                          setMemberRole(member, e.currentTarget.value as PlayerRole)
+                        }
+                      >
+                        <option value="Player">Player</option>
+                        <option value="Spectator">Spectator</option>
+                        <option value="Inactive">Inactive</option>
+                      </select>
+                      <Show when={a().role === "Player"}>
+                        <select
+                          class="launch-id-select"
+                          value={a().playerId}
+                          onChange={(e) =>
+                            setMemberPlayerId(member, Number(e.currentTarget.value))
+                          }
+                        >
+                          <For
+                            each={Array.from(
+                              { length: playerCount() },
+                              (_, i) => i + 1,
+                            )}
+                          >
+                            {(n) => <option value={n}>Port {n}</option>}
+                          </For>
+                        </select>
+                      </Show>
                     </div>
-                  )}
-                </For>
+                  );
+                }}
+              </For>
+            </div>
+
+            {/* Right column: game list (only when mode has a games folder) */}
+            <Show when={selectedMode()?.gamesFolder}>
+              <div class="launch-right">
+                <div class="launch-section-label">Game</div>
+                <Show
+                  when={gameList().length > 0}
+                  fallback={
+                    <p class="launch-hint">
+                      No games found in the configured folder.
+                    </p>
+                  }
+                >
+                  <div class="game-list-box game-list-box-fill">
+                    <For each={gameList()}>
+                      {(g) => (
+                        <div
+                          class={`game-list-item${selectedGame() === g ? " selected" : ""}`}
+                          onClick={() => setSelectedGame(g)}
+                        >
+                          {g}
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
               </div>
             </Show>
-          </Show>
-
-          {/* Player assignments */}
-          <div class="launch-section-label">Player Assignments</div>
-          <For each={store.members()}>
-            {(member) => {
-              const a = () =>
-                assignments()[member] ?? {
-                  role: "Inactive" as PlayerRole,
-                  playerId: 0,
-                };
-              return (
-                <div class="launch-row">
-                  <span class="launch-row-label">{member}</span>
-                  <select
-                    class="launch-role-select"
-                    value={a().role}
-                    onChange={(e) =>
-                      setMemberRole(member, e.currentTarget.value as PlayerRole)
-                    }
-                  >
-                    <option value="Player">Player</option>
-                    <option value="Spectator">Spectator</option>
-                    <option value="Inactive">Inactive</option>
-                  </select>
-                  <Show when={a().role === "Player"}>
-                    <select
-                      class="launch-id-select"
-                      value={a().playerId}
-                      onChange={(e) =>
-                        setMemberPlayerId(member, Number(e.currentTarget.value))
-                      }
-                    >
-                      <For
-                        each={Array.from(
-                          { length: playerCount() },
-                          (_, i) => i + 1,
-                        )}
-                      >
-                        {(n) => <option value={n}>Port {n}</option>}
-                      </For>
-                    </select>
-                  </Show>
-                </div>
-              );
-            }}
-          </For>
+          </div>
 
           <div class="modal-actions">
             <button
