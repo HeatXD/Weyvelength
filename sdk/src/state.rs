@@ -1,29 +1,27 @@
 // Internal types and globals — not part of the public C API.
 
-use std::collections::VecDeque;
 use std::net::{SocketAddr, UdpSocket};
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Mutex;
 
 pub const WL_PACKET_MAX: usize = 1400;
-/// Maximum queued inbound packets before the oldest is discarded.
-pub const QUEUE_CAP: usize = 256;
 
 // ── Globals ───────────────────────────────────────────────────────────────────
 //
-// RECV_SOCK is Arc<UdpSocket> so the background recv thread holds a clone
-// without keeping the mutex locked during blocking recv_from.
-// SEND_SOCK is a separate try_clone()'d handle — wl_send() never aliases recv.
+// RECV_SOCK and SEND_SOCK are try_clone() handles of the same underlying OS
+// socket, so they share the same local port. The bridge discovers the SDK's
+// port from the source address of the first outbound packet and sends all
+// inbound data back to that port.
+//
+// The socket is set non-blocking so wl_recv returns immediately (None) when
+// no packet is available, matching ASIO adapter behaviour. The OS recv buffer
+// (256 KB via SO_RCVBUF) absorbs bursts between game-tick polls.
+// No intermediate software queue: window-hold freezes stop polling, so stale
+// packets are naturally aged out by the OS buffer rather than accumulating.
 
-pub static RECV_SOCK: Mutex<Option<Arc<UdpSocket>>> = Mutex::new(None);
+pub static RECV_SOCK: Mutex<Option<UdpSocket>> = Mutex::new(None);
 pub static SEND_SOCK: Mutex<Option<(UdpSocket, SocketAddr)>> = Mutex::new(None);
 pub static PLAYER_ID: AtomicU8 = AtomicU8::new(0);
-/// Local port of the recv socket; used to send a wakeup packet on shutdown.
-pub static LOCAL_PORT: AtomicU16 = AtomicU16::new(0);
-/// Per-session stop flag owned by the background recv thread.
-pub static STOP_ARC: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
-/// Inbound packet queue. Background thread pushes; wl_recv pops.
-pub static RECV_QUEUE: Mutex<VecDeque<(u8, Box<[u8]>)>> = Mutex::new(VecDeque::new());
 
 // ERROR is written immediately before returning from a failing call and read
 // immediately after by the caller. Raw pointer access avoids holding a lock
