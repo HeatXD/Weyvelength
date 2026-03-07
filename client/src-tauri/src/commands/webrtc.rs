@@ -106,8 +106,10 @@ pub async fn launch_game(
 
     // Bind a UDP socket for the emulator ↔ WL bridge.
     let udp_sock = std::net::UdpSocket::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
-    udp_sock.set_nonblocking(true).map_err(|e| e.to_string())?;
+    // Blocking socket — recv_from wakes immediately on packet arrival.
+    // Cancellation sends a wakeup packet so the thread unblocks without polling.
     let wl_port = udp_sock.local_addr().unwrap().port();
+    state.bridge_port.store(wl_port, Ordering::Relaxed);
 
     // Parse config JSON: name → player_id.
     let user_to_id: HashMap<String, u8> = {
@@ -154,9 +156,9 @@ pub async fn launch_game(
     }
 
     // Per-peer send channels. Wire format inbound: [u8 from_player_id][game data]
-    let mut id_to_tx: HashMap<u8, tokio::sync::mpsc::UnboundedSender<bytes::Bytes>> = HashMap::new();
+    let mut id_to_tx: HashMap<u8, tokio::sync::mpsc::Sender<bytes::Bytes>> = HashMap::new();
     for (&pid, dc) in &id_to_dc {
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<bytes::Bytes>();
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<bytes::Bytes>(16);
         id_to_tx.insert(pid, tx);
         let dc2 = dc.clone();
         tokio::spawn(async move {
@@ -187,6 +189,7 @@ pub async fn launch_game(
     *state.udp_listener_cancel.lock().unwrap() = Some(cancel_tx);
     let app2 = app.clone();
     std::thread::spawn(move || {
+        let bridge_state = app2.state::<AppState>();
         let mut buf = [0u8; 1 + 1400];
         loop {
             match cancel_rx.try_recv() {
@@ -195,20 +198,17 @@ pub async fn launch_game(
             }
             match udp_sock.recv_from(&mut buf) {
                 Ok((len, addr)) if len >= 1 => {
-                    let state = app2.state::<AppState>();
-                    if state.emulator_port.load(Ordering::Relaxed) == 0 {
-                        state.emulator_port.store(addr.port(), Ordering::Relaxed);
+                    if bridge_state.emulator_port.load(Ordering::Relaxed) == 0 {
+                        bridge_state.emulator_port.store(addr.port(), Ordering::Relaxed);
                     }
                     let to_pid = buf[0];
                     if let Some(tx) = id_to_tx.get(&to_pid) {
                         let data = bytes::Bytes::copy_from_slice(&buf[1..len]);
-                        let _ = tx.send(data);
+                        let _ = tx.try_send(data);
                     }
                 }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(std::time::Duration::from_micros(500));
-                }
-                _ => break,
+                Ok(_) => {} // zero-length (e.g. wakeup packet with no payload), ignore
+                Err(_) => break,
             }
         }
     });
@@ -246,6 +246,12 @@ pub async fn launch_game(
                 if let Some(tx) = state.udp_listener_cancel.lock().unwrap().take() {
                     let _ = tx.send(());
                 }
+                let port = state.bridge_port.swap(0, Ordering::Relaxed);
+                if port != 0 {
+                    if let Ok(sock) = std::net::UdpSocket::bind("127.0.0.1:0") {
+                        let _ = sock.send_to(&[0u8], SocketAddr::from(([127, 0, 0, 1], port)));
+                    }
+                }
                 state.emulator_port.store(0, Ordering::Relaxed);
                 let _ = app_watch.emit("game-stopped", ());
             }
@@ -264,9 +270,16 @@ pub fn kill_game_process(state: &AppState) {
     if let Some(tx) = state.game_watch_cancel.lock().unwrap().take() {
         let _ = tx.send(());
     }
-    // Cancel the bridge recv task.
+    // Cancel the bridge recv thread: send the oneshot then kick the blocking
+    // recv_from awake with a dummy packet (pid=0, ignored by the thread).
     if let Some(tx) = state.udp_listener_cancel.lock().unwrap().take() {
         let _ = tx.send(());
+    }
+    let port = state.bridge_port.swap(0, Ordering::Relaxed);
+    if port != 0 {
+        if let Ok(sock) = std::net::UdpSocket::bind("127.0.0.1:0") {
+            let _ = sock.send_to(&[0u8], SocketAddr::from(([127, 0, 0, 1], port)));
+        }
     }
     // Zero the port so in-flight on_message closures become no-ops immediately.
     state.emulator_port.store(0, Ordering::Relaxed);

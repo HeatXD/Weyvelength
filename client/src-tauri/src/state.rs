@@ -52,6 +52,9 @@ pub struct AppState {
     /// packet the bridge task receives. 0 = not yet known / game not running.
     /// Atomic so on_message callbacks read it lock-free.
     pub emulator_port: AtomicU16,
+    /// Local port the bridge thread is listening on. Used to send a wakeup
+    /// packet that unblocks recv_from on cancel. 0 when not running.
+    pub bridge_port: AtomicU16,
     /// Cancels the UDP listener task on leave/disconnect.
     pub udp_listener_cancel: Mutex<Option<oneshot::Sender<()>>>,
     /// Cancels the process-watcher task (and triggers child kill) when called externally.
@@ -77,6 +80,7 @@ impl AppState {
             force_relay: AtomicBool::new(false),
             server_addr: RwLock::new(None),
             emulator_port: AtomicU16::new(0),
+            bridge_port: AtomicU16::new(0),
             udp_listener_cancel: Mutex::new(None),
             game_watch_cancel: Mutex::new(None),
             auth_token: RwLock::new(None),
