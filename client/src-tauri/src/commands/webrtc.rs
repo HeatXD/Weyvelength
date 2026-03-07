@@ -99,15 +99,14 @@ pub async fn launch_game(
     exe_path: String,
     player_id: u32,
     config: String,
+    debug_log: bool,
 ) -> Result<(), String> {
     // Kill any previously running game process before launching a new one.
     // This prevents orphaned watchers when the button is pressed multiple times.
     kill_game_process(&state);
 
     // Bind a UDP socket for the emulator ↔ WL bridge.
-    let udp_sock = std::net::UdpSocket::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
-    // Blocking socket — recv_from wakes immediately on packet arrival.
-    // Cancellation sends a wakeup packet so the thread unblocks without polling.
+    let udp_sock = tokio::net::UdpSocket::bind("127.0.0.1:0").await.map_err(|e| e.to_string())?;
     let wl_port = udp_sock.local_addr().unwrap().port();
     state.bridge_port.store(wl_port, Ordering::Relaxed);
 
@@ -133,8 +132,10 @@ pub async fn launch_game(
         .map(|e| (e.key().clone(), e.value().game_dc.clone()))
         .collect();
 
-    // Std send socket: used by on_message closures to deliver inbound WebRTC data
-    // to the emulator. Captured directly in closures — not stored in AppState.
+    // Socket used by on_message closures to forward inbound WebRTC game data to
+    // the emulator. Non-blocking because on_message is called synchronously from
+    // a webrtc-rs internal thread and must not stall. Local UDP never fills the
+    // send buffer, so EAGAIN/WSAEWOULDBLOCK is not expected in practice.
     let send_sock = Arc::new(
         std::net::UdpSocket::bind("127.0.0.1:0").map_err(|e| e.to_string())?
     );
@@ -155,60 +156,169 @@ pub async fn launch_game(
         }
     }
 
-    // Per-peer send channels. Wire format inbound: [u8 from_player_id][game data]
-    let mut id_to_tx: HashMap<u8, tokio::sync::mpsc::Sender<bytes::Bytes>> = HashMap::new();
-    for (&pid, dc) in &id_to_dc {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<bytes::Bytes>(16);
-        id_to_tx.insert(pid, tx);
-        let dc2 = dc.clone();
-        tokio::spawn(async move {
-            while let Some(data) = rx.recv().await {
-                let _ = dc2.send(&data).await;
+    // ── Diagnostic log file (debug_log only) ─────────────────────────────────
+    // Unique per-launch: timestamp_ms + PID so concurrent runs never collide.
+    use std::io::Write as _;
+    let t_start = std::time::Instant::now();
+    let log: std::sync::Arc<std::sync::Mutex<Option<std::io::BufWriter<std::fs::File>>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(if debug_log {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let pid = std::process::id();
+            let log_path = std::env::temp_dir().join(format!("wl_bridge_{ts}_{pid}.log"));
+            eprintln!("[bridge] diagnostic log → {}", log_path.display());
+            std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&log_path)
+                .ok()
+                .map(std::io::BufWriter::new)
+        } else {
+            None
+        }));
+    macro_rules! wlog {
+        ($lg:expr, $($arg:tt)*) => {{
+            if let Ok(mut g) = $lg.lock() {
+                if let Some(ref mut f) = *g {
+                    let ms = t_start.elapsed().as_millis();
+                    let _ = writeln!(f, "[{ms:>8}ms] {}", format_args!($($arg)*));
+                    let _ = f.flush();
+                }
             }
-        });
+        }};
+    }
 
+    // Inbound: WebRTC DC → emulator.
+    // Wire format (batched): [u16 len LE][data][u16 len LE][data]...
+    // on_message splits the batch and sends each sub-packet to the SDK socket.
+    for (&pid, dc) in &id_to_dc {
         let sock = send_sock.clone();
         let app3 = app.clone();
+        let log_in = log.clone();
         dc.on_message(Box::new(move |msg| {
             let port = app3.state::<AppState>().emulator_port.load(Ordering::Relaxed);
             if port != 0 {
                 let data = &msg.data;
-                let len = data.len().min(1400);
-                let mut frame = [0u8; 1 + 1400];
-                frame[0] = pid;
-                frame[1..1 + len].copy_from_slice(&data[..len]);
-                let _ = sock.send_to(&frame[..1 + len], SocketAddr::from(([127, 0, 0, 1], port)));
+                let mut offset = 0usize;
+                let mut count = 0u32;
+                while offset + 2 <= data.len() {
+                    let sub_len = u16::from_le_bytes([data[offset], data[offset + 1]]) as usize;
+                    offset += 2;
+                    if offset + sub_len > data.len() { break; }
+                    let sub_len_capped = sub_len.min(1400);
+                    let mut frame = [0u8; 1 + 1400];
+                    frame[0] = pid;
+                    frame[1..1 + sub_len_capped].copy_from_slice(&data[offset..offset + sub_len_capped]);
+                    let _ = sock.send_to(&frame[..1 + sub_len_capped], SocketAddr::from(([127, 0, 0, 1], port)));
+                    offset += sub_len;
+                    count += 1;
+                }
+                if count > 1 {
+                    wlog!(log_in, "[in ] pid={pid} batch={count} pkts {}B", data.len());
+                }
             }
             Box::pin(async {})
         }));
     }
 
-    // Bridge recv thread: emulator → per-peer send channels.
-    // Outbound frame from emulator: [u8 to_player_id][data]
-    let (cancel_tx, mut cancel_rx) = oneshot::channel::<()>();
-    *state.udp_listener_cancel.lock().unwrap() = Some(cancel_tx);
-    let app2 = app.clone();
-    std::thread::spawn(move || {
-        let bridge_state = app2.state::<AppState>();
-        let mut buf = [0u8; 1 + 1400];
-        loop {
-            match cancel_rx.try_recv() {
-                Ok(_) | Err(oneshot::error::TryRecvError::Closed) => break,
-                Err(oneshot::error::TryRecvError::Empty) => {}
-            }
-            match udp_sock.recv_from(&mut buf) {
-                Ok((len, addr)) if len >= 1 => {
-                    if bridge_state.emulator_port.load(Ordering::Relaxed) == 0 {
-                        bridge_state.emulator_port.store(addr.port(), Ordering::Relaxed);
-                    }
-                    let to_pid = buf[0];
-                    if let Some(tx) = id_to_tx.get(&to_pid) {
-                        let data = bytes::Bytes::copy_from_slice(&buf[1..len]);
-                        let _ = tx.try_send(data);
+    // Outbound: emulator → WebRTC DCs.
+    //
+    // Bridge drains all available UDP packets per wakeup (try_recv_from loop),
+    // packs them per-peer into a single batch DC message, then deposits via a
+    // watch channel (latest-value, never blocks). Each peer has an independent
+    // send task so a slow dc.send() for one peer never stalls others.
+    //
+    // Batch wire format: [u16 len LE][data][u16 len LE][data]...
+    let mut id_to_watch: HashMap<u8, tokio::sync::watch::Sender<Option<bytes::Bytes>>> =
+        HashMap::new();
+    for (&pid, dc) in &id_to_dc {
+        let (tx, mut rx) = tokio::sync::watch::channel::<Option<bytes::Bytes>>(None);
+        id_to_watch.insert(pid, tx);
+        let dc2 = dc.clone();
+        let log_send = log.clone();
+        tokio::spawn(async move {
+            loop {
+                if rx.changed().await.is_err() { break; }
+                let data = rx.borrow_and_update().clone();
+                if let Some(data) = data {
+                    let t0 = std::time::Instant::now();
+                    let _ = dc2.send(&data).await;
+                    let elapsed = t0.elapsed();
+                    if elapsed.as_millis() >= 1 {
+                        wlog!(log_send, "[out] pid={pid} dc.send() slow: {elapsed:?} {}B", data.len());
                     }
                 }
-                Ok(_) => {} // zero-length (e.g. wakeup packet with no payload), ignore
-                Err(_) => break,
+            }
+        });
+    }
+
+    let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+    *state.udp_listener_cancel.lock().unwrap() = Some(cancel_tx);
+    let app2 = app.clone();
+    let log_bridge = log.clone();
+    tokio::spawn(async move {
+        let bridge_state = app2.state::<AppState>();
+        let mut buf = [0u8; 1 + 1400];
+        let mut batches: HashMap<u8, bytes::BytesMut> = HashMap::new();
+        tokio::pin!(cancel_rx);
+        loop {
+            // ── Blocking wait for the first packet of a burst ────────────────
+            tokio::select! {
+                biased;
+                _ = &mut cancel_rx => break,
+                result = udp_sock.recv_from(&mut buf) => {
+                    match result {
+                        Ok((len, addr)) if len >= 1 => {
+                            if bridge_state.emulator_port.load(Ordering::Relaxed) == 0 {
+                                bridge_state.emulator_port.store(addr.port(), Ordering::Relaxed);
+                                wlog!(log_bridge, "[bridge] learned emulator port {}", addr.port());
+                            }
+                            let to_pid = buf[0];
+                            let pkt = &buf[1..len];
+                            let entry = batches.entry(to_pid).or_default();
+                            entry.extend_from_slice(&(pkt.len() as u16).to_le_bytes());
+                            entry.extend_from_slice(pkt);
+                        }
+                        Ok(_) => {} // zero-length wakeup
+                        Err(e) => {
+                            use std::io::ErrorKind;
+                            match e.kind() {
+                                ErrorKind::ConnectionReset | ErrorKind::ConnectionRefused => {}
+                                _ => break,
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Non-blocking drain: collect rest of burst ────────────────────
+            let mut drain_count = 0u32;
+            loop {
+                match udp_sock.try_recv_from(&mut buf) {
+                    Ok((len, _)) if len >= 1 => {
+                        let to_pid = buf[0];
+                        let pkt = &buf[1..len];
+                        let entry = batches.entry(to_pid).or_default();
+                        entry.extend_from_slice(&(pkt.len() as u16).to_le_bytes());
+                        entry.extend_from_slice(pkt);
+                        drain_count += 1;
+                    }
+                    _ => break,
+                }
+            }
+            if drain_count > 2 {
+                wlog!(log_bridge, "[bridge] large drain: +{drain_count} extra pkts");
+            }
+
+            // ── Flush one batch per peer via watch channel (instant) ─────────
+            for (pid, batch) in batches.iter_mut() {
+                if batch.is_empty() { continue; }
+                if let Some(tx) = id_to_watch.get(pid) {
+                    let data = batch.split().freeze();
+                    let _ = tx.send(Some(data));
+                }
             }
         }
     });
@@ -249,7 +359,7 @@ pub async fn launch_game(
                 let port = state.bridge_port.swap(0, Ordering::Relaxed);
                 if port != 0 {
                     if let Ok(sock) = std::net::UdpSocket::bind("127.0.0.1:0") {
-                        let _ = sock.send_to(&[0u8], SocketAddr::from(([127, 0, 0, 1], port)));
+                        let _ = sock.send_to(&[], SocketAddr::from(([127, 0, 0, 1], port)));
                     }
                 }
                 state.emulator_port.store(0, Ordering::Relaxed);
@@ -271,14 +381,14 @@ pub fn kill_game_process(state: &AppState) {
         let _ = tx.send(());
     }
     // Cancel the bridge recv thread: send the oneshot then kick the blocking
-    // recv_from awake with a dummy packet (pid=0, ignored by the thread).
+    // recv_from awake with a zero-length wakeup packet.
     if let Some(tx) = state.udp_listener_cancel.lock().unwrap().take() {
         let _ = tx.send(());
     }
     let port = state.bridge_port.swap(0, Ordering::Relaxed);
     if port != 0 {
         if let Ok(sock) = std::net::UdpSocket::bind("127.0.0.1:0") {
-            let _ = sock.send_to(&[0u8], SocketAddr::from(([127, 0, 0, 1], port)));
+            let _ = sock.send_to(&[], SocketAddr::from(([127, 0, 0, 1], port)));
         }
     }
     // Zero the port so in-flight on_message closures become no-ops immediately.

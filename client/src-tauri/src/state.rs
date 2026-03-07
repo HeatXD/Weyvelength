@@ -130,12 +130,12 @@ impl AppState {
     }
 
     pub fn reset_stream(&self, kind: StreamKind) -> oneshot::Receiver<()> {
-        let mutex = self.kind_mutex(&kind);
-        if let Some(tx) = mutex.lock().unwrap().take() {
-            let _ = tx.send(());
-        }
         let (tx, rx) = oneshot::channel();
-        *mutex.lock().unwrap() = Some(tx);
+        let mut guard = self.kind_mutex(&kind).lock().unwrap();
+        if let Some(old) = guard.take() {
+            let _ = old.send(());
+        }
+        *guard = Some(tx);
         rx
     }
 
