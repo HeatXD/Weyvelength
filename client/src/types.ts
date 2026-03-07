@@ -48,6 +48,7 @@ export interface LaunchMode {
 
 export interface UserConfig {
   launchModes: LaunchMode[];
+  debugLog?: boolean;
 }
 
 export interface MemberAssignment {

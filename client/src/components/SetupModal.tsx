@@ -10,6 +10,9 @@ import "../styles/SetupModal.css";
 export default function SetupModal() {
   const store = useStore();
   const [adding, setAdding] = createSignal(false);
+  const [editingId, setEditingId] = createSignal<string | null>(null);
+
+  // shared form state (used for both add and edit)
   const [name, setName] = createSignal("");
   const [exePath, setExePath] = createSignal("");
   const [gamesFolder, setGamesFolder] = createSignal("");
@@ -37,6 +40,12 @@ export default function SetupModal() {
     if (p) setGamesFolder(p);
   }
 
+  function clearForm() {
+    setName("");
+    setExePath("");
+    setGamesFolder("");
+  }
+
   async function handleAdd() {
     const n = name().trim() || deriveName(exePath());
     if (!exePath() || !n) return;
@@ -49,16 +58,41 @@ export default function SetupModal() {
     };
     store.addLaunchMode(data);
     setAdding(false);
-    setName("");
-    setExePath("");
-    setGamesFolder("");
+    clearForm();
+  }
+
+  async function handleEditSave(id: string) {
+    const n = name().trim() || deriveName(exePath());
+    if (!exePath() || !n) return;
+    // Only re-hash if exe path changed
+    const original = store.launchModes().find((m) => m.id === id);
+    const exeHash =
+      original?.exePath === exePath()
+        ? original?.exeHash
+        : await invoke<string>("hash_file", { path: exePath() }).catch(() => undefined);
+    const data: Omit<LaunchMode, "id"> = {
+      name: n,
+      exePath: exePath(),
+      ...(gamesFolder() && { gamesFolder: gamesFolder() }),
+      ...(exeHash && { exeHash }),
+    };
+    store.updateLaunchMode(id, data);
+    setEditingId(null);
+    clearForm();
+  }
+
+  function startEditing(mode: LaunchMode) {
+    setEditingId(mode.id);
+    setName(mode.name);
+    setExePath(mode.exePath);
+    setGamesFolder(mode.gamesFolder ?? "");
+    setAdding(false);
   }
 
   function handleCancel() {
     setAdding(false);
-    setName("");
-    setExePath("");
-    setGamesFolder("");
+    setEditingId(null);
+    clearForm();
   }
 
   return (
@@ -81,24 +115,73 @@ export default function SetupModal() {
           }
         >
           {(mode) => (
-            <div class="launch-mode-item">
-              <div class="launch-mode-info">
-                <span class="launch-mode-name">{mode.name}</span>
-                <span class="launch-mode-path" title={mode.exePath}>
-                  {mode.exePath}
-                </span>
-                <span class="launch-mode-folder" title={mode.gamesFolder}>
-                  {mode.gamesFolder}
-                </span>
+            <Show
+              when={editingId() === mode.id}
+              fallback={
+                <div class="launch-mode-item">
+                  <div class="launch-mode-info">
+                    <span class="launch-mode-name">{mode.name}</span>
+                    <span class="launch-mode-path" title={mode.exePath}>
+                      {mode.exePath}
+                    </span>
+                    <span class="launch-mode-folder" title={mode.gamesFolder}>
+                      {mode.gamesFolder}
+                    </span>
+                  </div>
+                  <button
+                    class="btn btn-secondary btn-icon-sm"
+                    onClick={() => startEditing(mode)}
+                    title="Edit"
+                  >
+                    ✎
+                  </button>
+                  <button
+                    class="btn btn-danger btn-icon-sm"
+                    onClick={() => store.removeLaunchMode(mode.id)}
+                    title="Remove"
+                  >
+                    ✕
+                  </button>
+                </div>
+              }
+            >
+              <div class="add-mode-form">
+                <FormField
+                  label="Name"
+                  value={name()}
+                  onInput={setName}
+                  placeholder="SNES9x"
+                />
+                <div class="setup-path-row">
+                  <span class="setup-path" title={exePath()}>
+                    {exePath() || "No executable selected"}
+                  </span>
+                  <button class="btn btn-secondary" onClick={browseExe}>
+                    Browse Exe…
+                  </button>
+                </div>
+                <div class="setup-path-row">
+                  <span class="setup-path" title={gamesFolder()}>
+                    {gamesFolder() || "No folder (optional)"}
+                  </span>
+                  <button class="btn btn-secondary" onClick={browseFolder}>
+                    Browse Folder…
+                  </button>
+                </div>
+                <div class="setup-form-actions">
+                  <button class="btn btn-secondary" onClick={handleCancel}>
+                    Cancel
+                  </button>
+                  <button
+                    class="btn btn-primary"
+                    onClick={() => handleEditSave(mode.id)}
+                    disabled={!exePath()}
+                  >
+                    Save
+                  </button>
+                </div>
               </div>
-              <button
-                class="btn btn-danger btn-icon-sm"
-                onClick={() => store.removeLaunchMode(mode.id)}
-                title="Remove"
-              >
-                ✕
-              </button>
-            </div>
+            </Show>
           )}
         </For>
       </div>
@@ -106,7 +189,7 @@ export default function SetupModal() {
       <Show
         when={adding()}
         fallback={
-          <button class="btn btn-secondary" onClick={() => setAdding(true)}>
+          <button class="btn btn-secondary" onClick={() => { setEditingId(null); setAdding(true); }}>
             + Add
           </button>
         }
@@ -149,14 +232,16 @@ export default function SetupModal() {
         </div>
       </Show>
 
-      <div class="modal-actions">
+      <div class="setup-debug-row">
+        <span class="setup-debug-label">Bridge diagnostic log</span>
         <button
-          class="btn btn-primary"
-          onClick={() => store.setShowLaunchModeModal(false)}
-        >
-          Done
-        </button>
+          role="switch"
+          aria-checked={store.debugLog()}
+          class={`relay-toggle${store.debugLog() ? " relay-toggle-on" : ""}`}
+          onClick={store.toggleDebugLog}
+        />
       </div>
+
     </Modal>
   );
 }

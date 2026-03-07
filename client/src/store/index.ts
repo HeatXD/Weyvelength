@@ -145,9 +145,13 @@ export interface AppStore {
   launchModes: () => LaunchMode[];
   addLaunchMode: (data: Omit<LaunchMode, "id">) => void;
   removeLaunchMode: (id: string) => void;
+  updateLaunchMode: (id: string, data: Omit<LaunchMode, "id">) => void;
   /** True when the launch mode setup modal should be shown. */
   showLaunchModeModal: () => boolean;
   setShowLaunchModeModal: (v: boolean) => void;
+  /** When true, bridge writes a diagnostic log file on each game launch. */
+  debugLog: () => boolean;
+  toggleDebugLog: () => void;
   username: () => string;
   addServer: (s: Omit<SavedServer, "id">) => string;
   removeServer: (id: string) => void;
@@ -798,6 +802,7 @@ export function createAppStore(): AppStore {
         members,
         ...(match.gamesFolder && { gamesFolder: match.gamesFolder }),
       }),
+      debugLog: config.debugLog(),
     }).catch((e: unknown) => {
       sysMsg(`Game launch failed: ${String(e)}`);
     });
@@ -827,6 +832,7 @@ export function createAppStore(): AppStore {
             members,
             ...(gamesFolder && { gamesFolder }),
           }),
+          debugLog: config.debugLog(),
         }).catch((e: unknown) => {
           sysMsg(`Game launch failed: ${String(e)}`);
         });
@@ -910,8 +916,11 @@ export function createAppStore(): AppStore {
     launchModes: config.launchModes,
     addLaunchMode: config.addLaunchMode,
     removeLaunchMode: config.removeLaunchMode,
+    updateLaunchMode: config.updateLaunchMode,
     showLaunchModeModal: config.showLaunchModeModal,
     setShowLaunchModeModal: config.setShowLaunchModeModal,
+    debugLog: config.debugLog,
+    toggleDebugLog: config.toggleDebugLog,
     // cross-cutting
     connectToServer,
     disconnect,
