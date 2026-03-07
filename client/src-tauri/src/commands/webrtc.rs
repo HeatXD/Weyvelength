@@ -1,10 +1,11 @@
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tonic::{self, transport::Channel};
-use tokio::net::UdpSocket;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Mutex as TokioMutex, oneshot};
+use webrtc::data_channel::RTCDataChannel;
 
 use crate::grpc::{
     weyvelength::{Signal, SignalKind, StreamSignalsRequest},
@@ -104,89 +105,110 @@ pub async fn launch_game(
     kill_game_process(&state);
 
     // Bind a UDP socket for the emulator ↔ WL bridge.
-    let udp_sock = Arc::new(
-        UdpSocket::bind("127.0.0.1:0")
-            .await
-            .map_err(|e| e.to_string())?,
-    );
+    let udp_sock = std::net::UdpSocket::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+    udp_sock.set_nonblocking(true).map_err(|e| e.to_string())?;
     let wl_port = udp_sock.local_addr().unwrap().port();
 
-    // mpsc channel: game_dc on_message → UDP to emulator.
-    let (bridge_tx, mut bridge_rx) = mpsc::channel::<bytes::Bytes>(256);
-    *state.udp_bridge_tx.lock().unwrap() = Some(bridge_tx);
-
-    // Task A: drain mpsc → UDP to emulator.
-    // Emulator address is learned from the first inbound UDP packet (write-once).
-    let sock_send = udp_sock.clone();
-    let emulator_addr: Arc<std::sync::OnceLock<std::net::SocketAddr>> =
-        Arc::new(std::sync::OnceLock::new());
-    let emu_addr_r = emulator_addr.clone();
-    tokio::spawn(async move {
-        while let Some(data) = bridge_rx.recv().await {
-            if let Some(addr) = emu_addr_r.get().copied() {
-                let _ = sock_send.send_to(&data, addr).await;
-            }
-        }
-    });
-
-    // Parse config JSON to build player_id maps.
-    // user_to_id: stored in AppState for on_message callbacks (name → id).
-    // id_to_user: captured into Task B closure (id → name for routing).
-    let (user_to_id, id_to_user): (HashMap<String, u8>, HashMap<u8, String>) = {
+    // Parse config JSON: name → player_id.
+    let user_to_id: HashMap<String, u8> = {
         let val: serde_json::Value = serde_json::from_str(&config)
             .unwrap_or(serde_json::Value::Null);
         let mut u2i = HashMap::new();
-        let mut i2u = HashMap::new();
         if let Some(members) = val.get("members").and_then(|m| m.as_object()) {
             for (name, v) in members {
-                if let Some(pid) = v.get("player_id").and_then(|p| p.as_u64()) {
-                    let pid = pid as u8;
-                    u2i.insert(name.clone(), pid);
-                    if pid > 0 {
-                        i2u.insert(pid, name.clone());
-                    }
+                if let Some(pid) = v.get("playerId").and_then(|p| p.as_u64()) {
+                    u2i.insert(name.clone(), pid as u8);
                 }
             }
         }
-        (u2i, i2u)
+        u2i
     };
-    state.game_player_ids.clear();
-    for (k, v) in user_to_id {
-        state.game_player_ids.insert(k, v);
+
+    // Collect game_dc slots before any await (never hold DashMap ref across await).
+    let dc_slots: Vec<(String, Arc<TokioMutex<Option<Arc<RTCDataChannel>>>>)> = state
+        .peer_connections
+        .iter()
+        .map(|e| (e.key().clone(), e.value().game_dc.clone()))
+        .collect();
+
+    // Std send socket: used by on_message closures to deliver inbound WebRTC data
+    // to the emulator. Captured directly in closures — not stored in AppState.
+    let send_sock = Arc::new(
+        std::net::UdpSocket::bind("127.0.0.1:0").map_err(|e| e.to_string())?
+    );
+    send_sock.set_nonblocking(true).map_err(|e| e.to_string())?;
+
+    // Reset emulator port so stale on_message closures from a previous game don't fire.
+    state.emulator_port.store(0, Ordering::Relaxed);
+
+    // Pre-build player_id → Arc<RTCDataChannel> map.
+    let mut id_to_dc: HashMap<u8, Arc<RTCDataChannel>> = HashMap::new();
+    for (username, slot) in dc_slots {
+        if let Some(&pid) = user_to_id.get(&username) {
+            if pid > 0 {
+                if let Some(dc) = slot.lock().await.as_ref() {
+                    id_to_dc.insert(pid, dc.clone());
+                }
+            }
+        }
     }
 
-    // Task B: listen for UDP from emulator → route to peer's game_dc.
-    // Wire frame: [u8 to_player_id][game data]
-    let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+    // Per-peer send channels. Wire format inbound: [u8 from_player_id][game data]
+    let mut id_to_tx: HashMap<u8, tokio::sync::mpsc::UnboundedSender<bytes::Bytes>> = HashMap::new();
+    for (&pid, dc) in &id_to_dc {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<bytes::Bytes>();
+        id_to_tx.insert(pid, tx);
+        let dc2 = dc.clone();
+        tokio::spawn(async move {
+            while let Some(data) = rx.recv().await {
+                let _ = dc2.send(&data).await;
+            }
+        });
+
+        let sock = send_sock.clone();
+        let app3 = app.clone();
+        dc.on_message(Box::new(move |msg| {
+            let port = app3.state::<AppState>().emulator_port.load(Ordering::Relaxed);
+            if port != 0 {
+                let data = &msg.data;
+                let len = data.len().min(1400);
+                let mut frame = [0u8; 1 + 1400];
+                frame[0] = pid;
+                frame[1..1 + len].copy_from_slice(&data[..len]);
+                let _ = sock.send_to(&frame[..1 + len], SocketAddr::from(([127, 0, 0, 1], port)));
+            }
+            Box::pin(async {})
+        }));
+    }
+
+    // Bridge recv thread: emulator → per-peer send channels.
+    // Outbound frame from emulator: [u8 to_player_id][data]
+    let (cancel_tx, mut cancel_rx) = oneshot::channel::<()>();
     *state.udp_listener_cancel.lock().unwrap() = Some(cancel_tx);
-    let sock_recv = udp_sock.clone();
     let app2 = app.clone();
-    tokio::spawn(async move {
-        let mut buf = vec![0u8; 65535];
-        tokio::pin!(cancel_rx);
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 1 + 1400];
         loop {
-            tokio::select! {
-                _ = &mut cancel_rx => break,
-                res = sock_recv.recv_from(&mut buf) => {
-                    let Ok((len, addr)) = res else { break };
-                    emulator_addr.get_or_init(|| addr);
-                    if len < 1 { continue; }
-                    let to_player_id = buf[0];
-                    let data = bytes::Bytes::copy_from_slice(&buf[1..len]);
-                    let Some(dest) = id_to_user.get(&to_player_id).cloned() else { continue };
-                    let dc_slot = app2
-                        .state::<AppState>()
-                        .peer_connections
-                        .get(&dest)
-                        .map(|e| e.game_dc.clone());
-                    if let Some(slot) = dc_slot {
-                        tokio::spawn(async move {
-                            if let Some(dc) = slot.lock().await.as_ref() {
-                                let _ = dc.send(&data).await;
-                            }
-                        });
+            match cancel_rx.try_recv() {
+                Ok(_) | Err(oneshot::error::TryRecvError::Closed) => break,
+                Err(oneshot::error::TryRecvError::Empty) => {}
+            }
+            match udp_sock.recv_from(&mut buf) {
+                Ok((len, addr)) if len >= 1 => {
+                    let state = app2.state::<AppState>();
+                    if state.emulator_port.load(Ordering::Relaxed) == 0 {
+                        state.emulator_port.store(addr.port(), Ordering::Relaxed);
+                    }
+                    let to_pid = buf[0];
+                    if let Some(tx) = id_to_tx.get(&to_pid) {
+                        let data = bytes::Bytes::copy_from_slice(&buf[1..len]);
+                        let _ = tx.send(data);
                     }
                 }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_micros(500));
+                }
+                _ => break,
             }
         }
     });
@@ -224,8 +246,7 @@ pub async fn launch_game(
                 if let Some(tx) = state.udp_listener_cancel.lock().unwrap().take() {
                     let _ = tx.send(());
                 }
-                *state.udp_bridge_tx.lock().unwrap() = None;
-                state.game_player_ids.clear();
+                state.emulator_port.store(0, Ordering::Relaxed);
                 let _ = app_watch.emit("game-stopped", ());
             }
         }
@@ -239,15 +260,16 @@ pub async fn launch_game(
 /// Tear down the UDP bridge and signal the process-watcher to kill the child.
 /// Call from leave/disconnect teardown or on GAME_STOPPED signal.
 pub fn kill_game_process(state: &AppState) {
-    // Signal the watcher, it holds the child and will call start_kill().
+    // Signal the watcher — it holds the child and will call start_kill().
     if let Some(tx) = state.game_watch_cancel.lock().unwrap().take() {
         let _ = tx.send(());
     }
+    // Cancel the bridge recv task.
     if let Some(tx) = state.udp_listener_cancel.lock().unwrap().take() {
         let _ = tx.send(());
     }
-    *state.udp_bridge_tx.lock().unwrap() = None;
-    state.game_player_ids.clear();
+    // Zero the port so in-flight on_message closures become no-ops immediately.
+    state.emulator_port.store(0, Ordering::Relaxed);
 }
 
 // ── signal stream task ────────────────────────────────────────────────────────
