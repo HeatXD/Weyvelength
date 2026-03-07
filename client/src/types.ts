@@ -16,20 +16,20 @@ export interface ChatMessage {
 export interface SessionInfo {
   id: string;
   name: string;
-  member_count: number;
-  is_public: boolean;
-  max_members: number;
-  game_started: boolean;
+  memberCount: number;
+  isPublic: boolean;
+  maxMembers: number;
+  gameStarted: boolean;
 }
 
 export interface SessionPayload {
-  session_id: string;
-  session_name: string;
-  is_public: boolean;
-  max_members: number;
-  existing_peers: string[];
+  sessionId: string;
+  sessionName: string;
+  isPublic: boolean;
+  maxMembers: number;
+  existingPeers: string[];
   host: string;
-  game_started: boolean;
+  gameStarted: boolean;
 }
 
 export type PlayerRole = "Player" | "Spectator" | "Inactive";
@@ -42,6 +42,8 @@ export interface LaunchMode {
   exePath: string;
   /** Path to folder containing games, omit for standalone executables */
   gamesFolder?: string;
+  /** SHA-256 of the executable, computed once when the mode is added */
+  exeHash?: string;
 }
 
 export interface UserConfig {
@@ -50,7 +52,7 @@ export interface UserConfig {
 
 export interface MemberAssignment {
   role: PlayerRole;
-  player_id: number;
+  playerId: number;
 }
 
 export interface LaunchConfig {
@@ -58,9 +60,9 @@ export interface LaunchConfig {
   platform: string;
   members: Record<string, MemberAssignment>;
   /** SHA-256 of the host's emulator executable */
-  exe_hash?: string;
+  exeHash?: string;
   /** SHA-256 of the host's game file */
-  game_hash?: string;
+  gameHash?: string;
 }
 
 export interface IceServer {
@@ -71,9 +73,9 @@ export interface IceServer {
 }
 
 export interface ServerInfo {
-  server_name: string;
+  serverName: string;
   motd: string;
-  ice_servers: IceServer[];
+  iceServers: IceServer[];
 }
 
 export type ActiveChannel = "global" | "session";

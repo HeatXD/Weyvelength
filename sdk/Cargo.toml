@@ -7,4 +7,3 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros"] }

@@ -11,6 +11,7 @@ use crate::grpc::{
 use crate::state::AppState;
 
 #[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionInfoPayload {
     pub id: String,
     pub name: String,
@@ -34,6 +35,7 @@ impl From<SessionInfo> for SessionInfoPayload {
 }
 
 #[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionPayload {
     pub session_id: String,
     pub session_name: String,

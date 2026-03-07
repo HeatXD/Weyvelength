@@ -53,8 +53,8 @@ export default function ChatPane() {
     store.members().forEach((m, i) => {
       a[m] =
         i < 8
-          ? { role: "Player", player_id: i + 1 }
-          : { role: "Spectator", player_id: 0 };
+          ? { role: "Player", playerId: i + 1 }
+          : { role: "Spectator", playerId: 0 };
     });
     setAssignments(a);
     setSelectedGame("");
@@ -78,20 +78,20 @@ export default function ChatPane() {
         const usedIds = new Set(
           Object.values(prev)
             .filter((a) => a.role === "Player")
-            .map((a) => a.player_id),
+            .map((a) => a.playerId),
         );
         let nextId = 1;
         while (usedIds.has(nextId)) nextId++;
-        return { ...prev, [member]: { role, player_id: nextId } };
+        return { ...prev, [member]: { role, playerId: nextId } };
       }
       // Remove this member as a player, then compact remaining player IDs
       // so they stay contiguous starting from 1.
-      const updated = { ...prev, [member]: { role, player_id: 0 } };
+      const updated = { ...prev, [member]: { role, playerId: 0 } };
       const players = Object.entries(updated)
         .filter(([, a]) => a.role === "Player")
-        .sort(([, a], [, b]) => a.player_id - b.player_id);
+        .sort(([, a], [, b]) => a.playerId - b.playerId);
       players.forEach(([name], i) => {
-        updated[name] = { ...updated[name], player_id: i + 1 };
+        updated[name] = { ...updated[name], playerId: i + 1 };
       });
       return updated;
     });
@@ -104,13 +104,13 @@ export default function ChatPane() {
         (name) =>
           name !== member &&
           prev[name].role === "Player" &&
-          prev[name].player_id === id,
+          prev[name].playerId === id,
       );
-      const myOldId = prev[member]?.player_id ?? 0;
+      const myOldId = prev[member]?.playerId ?? 0;
       return {
         ...prev,
-        [member]: { ...prev[member], player_id: id },
-        ...(clash ? { [clash]: { ...prev[clash], player_id: myOldId } } : {}),
+        [member]: { ...prev[member], playerId: id },
+        ...(clash ? { [clash]: { ...prev[clash], playerId: myOldId } } : {}),
       };
     });
   }
@@ -123,26 +123,22 @@ export default function ChatPane() {
       (a) => a.role === "Player",
     ).length;
     if (playerCount < 2) return;
-    // Hash exe and (if applicable) game while modal is still open so members can verify integrity.
     const gameFilePath =
       mode.gamesFolder && selectedGame()
         ? `${mode.gamesFolder}/${selectedGame()}`
         : null;
-    const [exeHash, gameHash] = await Promise.all([
-      invoke<string>("hash_file", { path: mode.exePath }).catch(() => ""),
-      gameFilePath
-        ? invoke<string>("hash_file", { path: gameFilePath }).catch(() => "")
-        : Promise.resolve(""),
-    ]);
+    const gameHash = gameFilePath
+      ? await invoke<string>("hash_file", { path: gameFilePath }).catch(() => "")
+      : "";
     const cfg: LaunchConfig = {
       game: selectedGame(),
       platform: mode.name,
       members: assignments(),
-      ...(exeHash && { exe_hash: exeHash }),
-      ...(gameHash && { game_hash: gameHash }),
+      ...(mode.exeHash && { exeHash: mode.exeHash }),
+      ...(gameHash && { gameHash }),
     };
     setShowLaunchModal(false);
-    await store.startGame(mode.exePath, cfg);
+    await store.startGame(mode.exePath, cfg, mode.gamesFolder);
   }
 
   async function sendMessage() {
@@ -156,7 +152,7 @@ export default function ChatPane() {
     const opening = !membersOpen();
     if (opening) {
       const session = store.currentSession();
-      if (session) await store.fetchMembers(session.session_id);
+      if (session) await store.fetchMembers(session.sessionId);
     }
     setMembersOpen(opening);
   }
@@ -169,7 +165,7 @@ export default function ChatPane() {
   const channelName = () => {
     if (store.activeChannel() === "global") return "#global";
     const s = store.currentSession();
-    return s ? `#${s.session_name}` : "#global";
+    return s ? `#${s.sessionName}` : "#global";
   };
 
   const sessionCtx = () =>
@@ -192,9 +188,9 @@ export default function ChatPane() {
               <Show when={sessionCtx()}>
                 {(session) => (
                   <span
-                    class={`session-badge ${session().is_public ? "badge-public" : "badge-private"}`}
+                    class={`session-badge ${session().isPublic ? "badge-public" : "badge-private"}`}
                   >
-                    {session().is_public ? "Public" : "Private"}
+                    {session().isPublic ? "Public" : "Private"}
                   </span>
                 )}
               </Show>
@@ -386,7 +382,7 @@ export default function ChatPane() {
               const a = () =>
                 assignments()[member] ?? {
                   role: "Inactive" as PlayerRole,
-                  player_id: 0,
+                  playerId: 0,
                 };
               return (
                 <div class="launch-row">
@@ -405,7 +401,7 @@ export default function ChatPane() {
                   <Show when={a().role === "Player"}>
                     <select
                       class="launch-id-select"
-                      value={a().player_id}
+                      value={a().playerId}
                       onChange={(e) =>
                         setMemberPlayerId(member, Number(e.currentTarget.value))
                       }

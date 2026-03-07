@@ -1,4 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
+import { invoke } from "@tauri-apps/api/core";
 
 import { useStore } from "../App";
 import { FormField } from "./FormField";
@@ -36,13 +37,15 @@ export default function SetupModal() {
     if (p) setGamesFolder(p);
   }
 
-  function handleAdd() {
+  async function handleAdd() {
     const n = name().trim() || deriveName(exePath());
     if (!exePath() || !n) return;
+    const exeHash = await invoke<string>("hash_file", { path: exePath() }).catch(() => undefined);
     const data: Omit<LaunchMode, "id"> = {
       name: n,
       exePath: exePath(),
       ...(gamesFolder() && { gamesFolder: gamesFolder() }),
+      ...(exeHash && { exeHash }),
     };
     store.addLaunchMode(data);
     setAdding(false);

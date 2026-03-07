@@ -1,9 +1,8 @@
 use std::sync::{Arc, Mutex, RwLock};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU16};
 
-use bytes::Bytes;
 use dashmap::DashMap;
-use tokio::sync::{mpsc, oneshot, Mutex as TokioMutex};
+use tokio::sync::{oneshot, Mutex as TokioMutex};
 use tonic::{self, transport::Channel};
 
 use webrtc::data_channel::RTCDataChannel;
@@ -49,16 +48,14 @@ pub struct AppState {
     pub force_relay: AtomicBool,
     /// "host:port" stored at connect time; passed to spawned executables as --wl-server.
     pub server_addr: RwLock<Option<String>>,
-    /// Bridge channel: game_dc on_message callbacks push framed data here;
-    /// a separate task reads it and sends via UDP to the local emulator.
-    pub udp_bridge_tx: Arc<Mutex<Option<mpsc::Sender<Bytes>>>>,
+    /// Emulator's UDP port (127.0.0.1 assumed). Learned from the first outbound
+    /// packet the bridge task receives. 0 = not yet known / game not running.
+    /// Atomic so on_message callbacks read it lock-free.
+    pub emulator_port: AtomicU16,
     /// Cancels the UDP listener task on leave/disconnect.
     pub udp_listener_cancel: Mutex<Option<oneshot::Sender<()>>>,
     /// Cancels the process-watcher task (and triggers child kill) when called externally.
     pub game_watch_cancel: Mutex<Option<oneshot::Sender<()>>>,
-    /// Maps peer username → player_id for the active game session.
-    /// Populated by launch_game; read by game_dc on_message callbacks.
-    pub game_player_ids: DashMap<String, u8>,
     /// Bearer token obtained from the server's Login RPC.
     pub auth_token: RwLock<Option<String>>,
 }
@@ -79,10 +76,9 @@ impl AppState {
             current_session_id: Mutex::new(None),
             force_relay: AtomicBool::new(false),
             server_addr: RwLock::new(None),
-            udp_bridge_tx: Arc::new(Mutex::new(None)),
+            emulator_port: AtomicU16::new(0),
             udp_listener_cancel: Mutex::new(None),
             game_watch_cancel: Mutex::new(None),
-            game_player_ids: DashMap::new(),
             auth_token: RwLock::new(None),
         }
     }

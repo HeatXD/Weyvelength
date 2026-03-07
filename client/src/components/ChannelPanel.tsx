@@ -28,7 +28,7 @@ export default function ChannelPanel() {
           <Match when={store.connectionStatus() === "connected"}>
             <div class="server-header">
               <div class="server-name">
-                {store.serverInfo()?.server_name ??
+                {store.serverInfo()?.serverName ??
                   store.servers().find((s) => s.id === store.activeServerId())
                     ?.displayName ??
                   "Server"}
@@ -91,26 +91,26 @@ export default function ChannelPanel() {
               <Show when={store.currentSession()}>
                 {(session) => {
                   const count = () =>
-                    store.sessions().find((s) => s.id === session().session_id)
-                      ?.member_count;
+                    store.sessions().find((s) => s.id === session().sessionId)
+                      ?.memberCount;
                   return (
                     <div
                       class={`channel-item ${store.activeChannel() === "session" ? "active" : ""}`}
                       onClick={() => store.setActiveChannel("session")}
                     >
                       <span class="channel-item-name">
-                        # {session().session_name}
+                        # {session().sessionName}
                       </span>
-                      <Show when={session().is_public}>
+                      <Show when={session().isPublic}>
                         <span class="channel-item-count">
                           <Users size={12} stroke-width={1.75} />
-                          {count() ?? 0}/{session().max_members}
+                          {count() ?? 0}/{session().maxMembers}
                         </span>
                       </Show>
                       <span
-                        class={`session-badge ${session().is_public ? "badge-public" : "badge-private"}`}
+                        class={`session-badge ${session().isPublic ? "badge-public" : "badge-private"}`}
                       >
-                        {session().is_public ? "pub" : "prv"}
+                        {session().isPublic ? "pub" : "prv"}
                       </span>
                     </div>
                   );
@@ -146,15 +146,15 @@ export default function ChannelPanel() {
               >
                 {(session) => {
                   const isCurrent = () =>
-                    store.currentSession()?.session_id === session.id;
+                    store.currentSession()?.sessionId === session.id;
                   const isFull = () =>
-                    session.max_members > 0 &&
-                    session.member_count >= session.max_members;
+                    session.maxMembers > 0 &&
+                    session.memberCount >= session.maxMembers;
                   const isDisabled = () =>
                     !isCurrent() &&
                     (!!store.currentSession() ||
                       isFull() ||
-                      session.game_started);
+                      session.gameStarted);
                   return (
                     <div
                       class={`session-item${isCurrent() ? " session-item-current" : ""}${isDisabled() ? " session-item-disabled" : ""}`}
@@ -165,16 +165,16 @@ export default function ChannelPanel() {
                       }
                     >
                       <span class="session-item-name">{session.name}</span>
-                      <Show when={session.is_public}>
+                      <Show when={session.isPublic}>
                         <span class="session-item-count">
                           <Users size={12} stroke-width={1.75} />
-                          {session.member_count}/{session.max_members}
+                          {session.memberCount}/{session.maxMembers}
                         </span>
                       </Show>
-                      <Show when={session.game_started}>
+                      <Show when={session.gameStarted}>
                         <span class="session-badge badge-in-game">In Game</span>
                       </Show>
-                      <Show when={isFull() && !isCurrent() && !session.game_started}>
+                      <Show when={isFull() && !isCurrent() && !session.gameStarted}>
                         <span class="session-badge badge-full">Full</span>
                       </Show>
                     </div>

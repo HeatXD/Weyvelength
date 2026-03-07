@@ -53,6 +53,7 @@ pub struct MemberEventPayload {
 }
 
 #[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct PeerPingPayload {
     pub peer: String,
     pub latency_ms: u64,
@@ -111,7 +112,7 @@ pub async fn create_peer_connection(
         Some(Duration::from_secs(5)), // failed timeout
         Some(Duration::from_secs(2)), // keepalive interval
     );
-    let api = APIBuilder::new().with_setting_engine(se).build();
+let api = APIBuilder::new().with_setting_engine(se).build();
     let pc = Arc::new(api.new_peer_connection(config).await?);
 
     let game_dc_slot: Arc<TokioMutex<Option<Arc<RTCDataChannel>>>> =
@@ -280,27 +281,8 @@ fn register_game_dc_callbacks(dc: &Arc<RTCDataChannel>, app: &AppHandle, remote:
         Box::pin(async {})
     }));
 
-    // Inbound game_dc message → prepend 1-byte from_player_id → UDP to emulator.
-    // Wire format: [u8 from_player_id][game data]
-    let peer_name = remote.to_owned();
-    let app_ref = app.clone();
-    dc.on_message(Box::new(move |msg| {
-        let name = peer_name.clone();
-        let app2 = app_ref.clone();
-        let data = msg.data.clone();
-        Box::pin(async move {
-            let state = app2.state::<AppState>();
-            let tx_opt = state.udp_bridge_tx.lock().unwrap().clone();
-            if let Some(tx) = tx_opt {
-                let from_player_id = state.game_player_ids
-                    .get(&name).map(|r| *r).unwrap_or(0);
-                let mut framed = Vec::with_capacity(1 + data.len());
-                framed.push(from_player_id);
-                framed.extend_from_slice(&data);
-                let _ = tx.try_send(bytes::Bytes::from(framed));
-            }
-        })
-    }));
+    // on_message is registered by launch_game once the send socket and emulator
+    // port are known, so the hot path runs fully lock-free.
 }
 
 fn register_ping_dc_callbacks(dc: &Arc<RTCDataChannel>, app: &AppHandle, remote: &str) {

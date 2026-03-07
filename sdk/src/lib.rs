@@ -1,11 +1,10 @@
-//! Weyvelength SDK, Rust implementation with C-compatible API.
+//! Weyvelength SDK — pure-std, pull-based C API.
 //!
-//! A tokio background task continuously drains the UDP bridge socket into an
-//! internal queue. `wl_poll` snapshots that queue; the game loop never blocks
-//! on I/O. `wl_send` routes outbound packets to the WL client bridge via the
-//! same socket.
-//!
-//! All exported functions are single-threaded from the caller's perspective.
+//! 1. Call `wl_init()` with the bridge port and player ID from the Weyvelength client.
+//! 2. Each game tick, call `wl_recv()` in a loop until it returns 0 to drain all
+//!    pending inbound packets.
+//! 3. Call `wl_send()` to transmit to a peer immediately.
+//! 4. Call `wl_shutdown()` on exit.
 
 mod api;
 mod core;

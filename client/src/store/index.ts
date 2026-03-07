@@ -162,7 +162,11 @@ export interface AppStore {
   sendMessage: (content: string) => Promise<void>;
   fetchMembers: (sessionId: string) => Promise<void>;
   /** Host-only: send StartGame signal then launch the local emulator. */
-  startGame: (exePath: string, cfg: LaunchConfig) => Promise<void>;
+  startGame: (
+    exePath: string,
+    cfg: LaunchConfig,
+    gamesFolder?: string,
+  ) => Promise<void>;
   /** Host-only: send StopGame signal (Tauri backend kills all processes on signal receipt). */
   stopGame: () => Promise<void>;
 }
@@ -329,7 +333,7 @@ export function createAppStore(): AppStore {
   }
 
   function turnServers(): IceServer[] {
-    return (server.serverInfo()?.ice_servers ?? []).filter(
+    return (server.serverInfo()?.iceServers ?? []).filter(
       (s) => s.name !== "",
     );
   }
@@ -396,22 +400,22 @@ export function createAppStore(): AppStore {
     setPeerStates(new Map()); // reset on each new session join
     setCurrentHost(sess.host);
     setIsHost(sess.host === loggedInUsername());
-    setGameStarted(sess.game_started ?? false);
+    setGameStarted(sess.gameStarted ?? false);
     session.setCurrentSession(sess);
     messaging.setActiveChannel("session");
     messaging.setSessionMessages([]);
 
     // Populate the member list immediately so the panel is ready before opening.
-    await session.fetchMembers(sess.session_id);
+    await session.fetchMembers(sess.sessionId);
 
     // Pre-populate "connecting…" messages for all existing peers synchronously,
     // before any WebRTC events can fire, avoids race between on_peer_connection_state_change
     // ("checking") and on_open ("open") which are separate async Rust callbacks.
-    const connectingPeers = new Set<string>(sess.existing_peers);
+    const connectingPeers = new Set<string>(sess.existingPeers);
     const now = Date.now();
-    if (sess.existing_peers.length > 0) {
+    if (sess.existingPeers.length > 0) {
       messaging.setSessionMessages(
-        sess.existing_peers.map((peer) => ({
+        sess.existingPeers.map((peer) => ({
           username: "",
           content: `${peer} is connecting…`,
           timestamp: now,
@@ -421,14 +425,14 @@ export function createAppStore(): AppStore {
     }
 
     await invoke("join_session_webrtc", {
-      sessionId: sess.session_id,
-      existingPeers: sess.existing_peers,
+      sessionId: sess.sessionId,
+      existingPeers: sess.existingPeers,
       forceRelay: forceRelay(),
     });
 
     // Start the gRPC session chat stream (replaces WebRTC chat DC).
     await invoke("stop_session_stream");
-    await invoke("start_session_stream", { sessionId: sess.session_id });
+    await invoke("start_session_stream", { sessionId: sess.sessionId });
 
     // session-message: incoming gRPC session chat messages
     teardownHandle(messaging.sessionHandle);
@@ -490,13 +494,13 @@ export function createAppStore(): AppStore {
 
     // peer-ping: RTT measurement results from the ping DC
     teardownHandle(pingHandle);
-    pingHandle.unlisten = await listen<{ peer: string; latency_ms: number }>(
+    pingHandle.unlisten = await listen<{ peer: string; latencyMs: number }>(
       "peer-ping",
       (e) => {
-        const { peer, latency_ms } = e.payload;
+        const { peer, latencyMs } = e.payload;
         setPeerPings((prev) => {
           const next = new Map(prev);
-          next.set(peer, latency_ms);
+          next.set(peer, latencyMs);
           return next;
         });
       },
@@ -528,7 +532,11 @@ export function createAppStore(): AppStore {
       } else {
         // Peer left, close our side of the WebRTC connection.
         invoke("close_peer_connection", { peer: username }).catch(() => {});
-        setPeerPings((prev) => { const n = new Map(prev); n.delete(username); return n; });
+        setPeerPings((prev) => {
+          const n = new Map(prev);
+          n.delete(username);
+          return n;
+        });
         if (connectingPeers.has(username)) {
           // Never finished connecting; replace the "connecting…" message in-place.
           connectingPeers.delete(username);
@@ -563,7 +571,7 @@ export function createAppStore(): AppStore {
           ]);
         }
       }
-      session.fetchMembers(sess.session_id).catch(() => {});
+      session.fetchMembers(sess.sessionId).catch(() => {});
     }
 
     memberEventHandle.unlisten = await listen<{
@@ -613,7 +621,7 @@ export function createAppStore(): AppStore {
           loggedInUsername(),
         );
         if (me?.role !== "Inactive") {
-          void handleNonHostGameStart(me?.player_id ?? 0, cfg);
+          void handleNonHostGameStart(me?.playerId ?? 0, cfg);
         }
       }
     });
@@ -653,7 +661,7 @@ export function createAppStore(): AppStore {
     if (!sess) return;
     ui.setError("");
     try {
-      await invoke("leave_session", { sessionId: sess.session_id });
+      await invoke("leave_session", { sessionId: sess.sessionId });
     } catch (e) {
       ui.setError(String(e));
     }
@@ -710,15 +718,21 @@ export function createAppStore(): AppStore {
       "modes=",
       modes.map((m) => m.name),
     );
-    const match =
-      modes.find((m) => m.name.toLowerCase() === cfg.platform.toLowerCase()) ??
-      (modes.length === 1 ? modes[0] : undefined);
+    let match: LaunchMode | undefined;
+    if (cfg.exeHash) {
+      match = modes.find((m) => m.exeHash === cfg.exeHash);
+    }
     if (!match) {
-      console.warn("[handleNonHostGameStart] no matching launch mode");
+      match =
+        modes.find(
+          (m) => m.name.toLowerCase() === cfg.platform.toLowerCase(),
+        ) ?? (modes.length === 1 ? modes[0] : undefined);
+    }
+    if (!match) {
       sysMsg(
         modes.length === 0
           ? `Game launch failed: no launch modes configured, open Weyvelength Setup to add one.`
-          : `Game launch failed: no launch mode named "${cfg.platform}", open Weyvelength Setup to configure it.`,
+          : `Game launch failed: no matching launch mode for "${cfg.platform}", open Weyvelength Setup to configure it.`,
       );
       return;
     }
@@ -730,35 +744,35 @@ export function createAppStore(): AppStore {
     );
 
     // Hash check, only verify fields the host included.
-    if (cfg.exe_hash || cfg.game_hash) {
+    if (cfg.exeHash || cfg.gameHash) {
       const gamePath =
         match.gamesFolder && cfg.game
           ? `${match.gamesFolder}/${cfg.game}`
           : null;
       const [exeHash, gameHash] = await Promise.all([
-        cfg.exe_hash
+        cfg.exeHash
           ? invoke<string>("hash_file", { path: match.exePath }).catch(
               () => null,
             )
           : Promise.resolve<string | null>(null),
-        cfg.game_hash && gamePath
+        cfg.gameHash && gamePath
           ? invoke<string>("hash_file", { path: gamePath }).catch(() => null)
           : Promise.resolve<string | null>(null),
       ]);
 
       const mismatches: string[] = [];
-      if (cfg.exe_hash) {
+      if (cfg.exeHash) {
         if (exeHash === null)
           mismatches.push(`executable not found at "${match.exePath}"`);
-        else if (exeHash !== cfg.exe_hash)
+        else if (exeHash !== cfg.exeHash)
           mismatches.push(`executable is a different version from the host's`);
       }
-      if (cfg.game_hash) {
+      if (cfg.gameHash) {
         if (!gamePath)
           mismatches.push(`no games folder configured for "${cfg.platform}"`);
         else if (gameHash === null)
           mismatches.push(`"${cfg.game}" not found in ${match.gamesFolder}`);
-        else if (gameHash !== cfg.game_hash)
+        else if (gameHash !== cfg.gameHash)
           mismatches.push(
             `"${cfg.game}" is a different version from the host's`,
           );
@@ -775,33 +789,44 @@ export function createAppStore(): AppStore {
       "[handleNonHostGameStart] invoking launch_game playerId=",
       playerId,
     );
-    const { exe_hash: _e, game_hash: _g, ...launchCfg } = cfg;
+    const { exeHash: _e, gameHash: _g, members, ...rest } = cfg;
     await invoke("launch_game", {
       exePath: match.exePath,
       playerId,
-      config: JSON.stringify(launchCfg),
+      config: JSON.stringify({
+        ...rest,
+        members,
+        ...(match.gamesFolder && { gamesFolder: match.gamesFolder }),
+      }),
     }).catch((e: unknown) => {
       sysMsg(`Game launch failed: ${String(e)}`);
     });
   }
 
-  async function startGame(exePath: string, cfg: LaunchConfig): Promise<void> {
+  async function startGame(
+    exePath: string,
+    cfg: LaunchConfig,
+    gamesFolder?: string,
+  ): Promise<void> {
     const sess = session.currentSession();
     if (!sess || !isHost() || launchingGame) return;
     launchingGame = true;
     ui.setError("");
     const payload = JSON.stringify(cfg);
     try {
-      await invoke("start_game", { sessionId: sess.session_id, payload });
+      await invoke("start_game", { sessionId: sess.sessionId, payload });
       setGameStarted(true);
       const me = cfg.members[loggedInUsername()];
       if (me?.role !== "Inactive") {
-        // Strip verification-only fields before handing config to the executable.
-        const { exe_hash: _e, game_hash: _g, ...launchCfg } = cfg;
+        const { exeHash: _e, gameHash: _g, members, ...rest } = cfg;
         await invoke("launch_game", {
           exePath,
-          playerId: me?.player_id ?? 0,
-          config: JSON.stringify(launchCfg),
+          playerId: me?.playerId ?? 0,
+          config: JSON.stringify({
+            ...rest,
+            members,
+            ...(gamesFolder && { gamesFolder }),
+          }),
         }).catch((e: unknown) => {
           sysMsg(`Game launch failed: ${String(e)}`);
         });

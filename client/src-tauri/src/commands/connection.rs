@@ -17,6 +17,7 @@ pub struct IceServerPayload {
 }
 
 #[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ServerInfoPayload {
     pub server_name: String,
     pub motd: String,
