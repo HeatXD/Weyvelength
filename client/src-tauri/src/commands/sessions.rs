@@ -21,6 +21,34 @@ pub struct SessionInfoPayload {
     pub game_started: bool,
 }
 
+impl From<crate::grpc::weyvelength::CreateSessionResponse> for SessionPayload {
+    fn from(r: crate::grpc::weyvelength::CreateSessionResponse) -> Self {
+        SessionPayload {
+            session_id: r.session_id,
+            session_name: r.session_name,
+            is_public: r.is_public,
+            max_members: r.max_members,
+            existing_peers: r.existing_peers,
+            host: r.host,
+            game_started: r.game_started,
+        }
+    }
+}
+
+impl From<crate::grpc::weyvelength::JoinSessionResponse> for SessionPayload {
+    fn from(r: crate::grpc::weyvelength::JoinSessionResponse) -> Self {
+        SessionPayload {
+            session_id: r.session_id,
+            session_name: r.session_name,
+            is_public: r.is_public,
+            max_members: r.max_members,
+            existing_peers: r.existing_peers,
+            host: r.host,
+            game_started: r.game_started,
+        }
+    }
+}
+
 impl From<SessionInfo> for SessionInfoPayload {
     fn from(s: SessionInfo) -> Self {
         SessionInfoPayload {
@@ -76,16 +104,7 @@ pub async fn create_session(
         .create_session(state.authed_request(CreateSessionRequest { username, is_public, max_members }))
         .await
         .map_err(|e| e.to_string())?;
-    let r = response.into_inner();
-    Ok(SessionPayload {
-        session_id: r.session_id,
-        session_name: r.session_name,
-        is_public: r.is_public,
-        max_members: r.max_members,
-        existing_peers: r.existing_peers,
-        host: r.host,
-        game_started: r.game_started,
-    })
+    Ok(response.into_inner().into())
 }
 
 #[tauri::command]
@@ -99,16 +118,7 @@ pub async fn join_session(
         .join_session(state.authed_request(JoinSessionRequest { session_id, username }))
         .await
         .map_err(|e| e.to_string())?;
-    let r = response.into_inner();
-    Ok(SessionPayload {
-        session_id: r.session_id,
-        session_name: r.session_name,
-        is_public: r.is_public,
-        max_members: r.max_members,
-        existing_peers: r.existing_peers,
-        host: r.host,
-        game_started: r.game_started,
-    })
+    Ok(response.into_inner().into())
 }
 
 #[tauri::command]
