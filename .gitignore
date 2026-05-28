@@ -1,0 +1,10 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs/Weyvelength
+/Server/vcpkg_installed/x64-windows
+/Client/vcpkg_installed/x64-windows
+/x64/Debug
+/Server/x64/Debug
+/Client/x64/Debug
