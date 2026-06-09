@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="Globals">
+    <MSBuildAllProjects Condition="'$(MSBuildVersion)' == '' Or '$(MSBuildVersion)' &lt; '16.0'">$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+    <HasSharedItems>true</HasSharedItems>
+    <ItemsProjectGuid>{45a431d2-1de6-4307-89e4-581f1257418c}</ItemsProjectGuid>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ProjectCapability Include="SourceItemsFromImports" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)protocol.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)framing.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)thirdparty\asio\asio.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)thirdparty\zpp_bits\zpp_bits.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)thirdparty\zpp_bits\LICENSE" />
+    <None Include="$(MSBuildThisFileDirectory)thirdparty\zpp_bits\VERSION" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="$(MSBuildThisFileDirectory)thirdparty\asio\LICENSE_1_0.txt" />
+  </ItemGroup>
+</Project>
