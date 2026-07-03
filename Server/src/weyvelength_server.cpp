@@ -228,8 +228,10 @@ namespace Weyvelength {
 		auto it = _rooms.find(conn->room);
 		if (it != _rooms.end()) {
 			std::erase(it->second.members, conn->id);
-			if (it->second.members.empty())
+			if (it->second.members.empty()) {
 				_rooms.erase(it);
+				std::cout << "Room " << conn->room << " closed\n";
+			}
 		}
 		conn->room.clear();
 	}
