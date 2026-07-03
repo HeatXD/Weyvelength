@@ -22,13 +22,13 @@ namespace Weyvelength {
 		conn->wake.cancel();
 	}
 
-	static std::string MakeRoomCode()
+	static std::string MakeRoomCode(uint32_t length)
 	{
 		static std::mt19937 rng{ std::random_device{}() };
 		static constexpr char alphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I
 		std::uniform_int_distribution<size_t> pick{ 0, sizeof(alphabet) - 2 };
 
-		std::string code(5, '?');
+		std::string code(length, '?');
 		for (char& c : code)
 			c = alphabet[pick(rng)];
 		return code;
@@ -37,6 +37,9 @@ namespace Weyvelength {
 	bool Server::Init(ServerConfig& config)
 	{
 		_config = config;
+		if (_config.room_code_length == 0)
+			_config.room_code_length = 8;
+
 		asio::error_code ec;
 
 		asio::ip::tcp::endpoint endpoint{ asio::ip::tcp::v4(), config.port };
@@ -177,9 +180,9 @@ namespace Weyvelength {
 			return;
 		}
 
-		std::string code = MakeRoomCode();
+		std::string code = MakeRoomCode(_config.room_code_length);
 		while (_rooms.contains(code))
-			code = MakeRoomCode();
+			code = MakeRoomCode(_config.room_code_length);
 
 		_rooms.emplace(code, Room{ code, { conn->id } });
 		conn->room = code;

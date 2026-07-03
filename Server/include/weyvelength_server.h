@@ -21,6 +21,7 @@ namespace Weyvelength {
 
 	struct ServerConfig {
 		uint16_t port = 0;
+		uint32_t room_code_length = 0; // 0 = use the default (8)
 	};
 
 	struct Connection {
