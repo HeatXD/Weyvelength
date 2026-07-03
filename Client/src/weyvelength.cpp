@@ -70,9 +70,29 @@ namespace Weyvelength {
 		return true;
 	}
 
+	bool Client::CreateRoom()
+	{
+		return SendServer(Proto::CreateRoom{});
+	}
+
+	bool Client::JoinRoom(const std::string& id)
+	{
+		return SendServer(Proto::JoinRoom{ id });
+	}
+
+	bool Client::SendChat(const std::string& text)
+	{
+		return SendServer(Proto::RoomChat{ 0, text });   // server fills in the sender id
+	}
+
 	uint32_t Client::Id() const
 	{
 		return _id;
+	}
+
+	const std::string& Client::RoomId() const
+	{
+		return _room;
 	}
 
 	bool Client::DrainServer()
@@ -115,10 +135,14 @@ namespace Weyvelength {
 			if (failure(body(msg)))
 				return DisconnectServer();
 
-			if (auto* assign = std::get_if<Proto::AssignClientId>(&msg))
+			if (auto* assign = std::get_if<Proto::AssignClientId>(&msg)) {
 				_id = assign->id;   // transport metadata; not surfaced via Next()
-			else
+			}
+			else {
+				if (auto* room = std::get_if<Proto::AssignRoomId>(&msg))
+					_room = room->id;   // cached for RoomId(), but still surfaced via Next()
 				_inbox.push(std::move(msg));
+			}
 			remaining = remaining.subspan(header_size + len);
 		}
 
