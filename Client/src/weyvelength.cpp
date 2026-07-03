@@ -42,6 +42,11 @@ namespace Weyvelength {
 
 	bool Client::Poll()
 	{
+		return PollServer();
+	}
+
+	bool Client::PollServer()
+	{
 		if (!_asio->socket.is_open())
 			return false;
 
@@ -58,11 +63,16 @@ namespace Weyvelength {
 		return true;
 	}
 
-	bool Client::Send(const Proto::ServerMessage& msg)
+	bool Client::SendServer(const Proto::ServerMessage& msg)
 	{
 		auto frame = Proto::FrameMessage(msg);
 		_asio->tx.insert(_asio->tx.end(), frame.begin(), frame.end());
 		return true;
+	}
+
+	uint32_t Client::Id() const
+	{
+		return _id;
 	}
 
 	bool Client::DrainServer()
@@ -105,7 +115,7 @@ namespace Weyvelength {
 			if (failure(body(msg)))
 				return DisconnectServer();
 
-			if (auto* assign = std::get_if<Proto::AssignId>(&msg))
+			if (auto* assign = std::get_if<Proto::AssignClientId>(&msg))
 				_id = assign->id;   // transport metadata; not surfaced via Next()
 			else
 				_inbox.push(std::move(msg));

@@ -72,7 +72,7 @@ namespace Weyvelength {
 	{
 		asio::co_spawn(conn->socket.get_executor(), WriteLoop(conn), asio::detached);
 
-		SendTo(conn->id, Proto::AssignId{ conn->id });
+		SendTo(conn->id, Proto::AssignClientId{ conn->id });
 
 		try {
 			co_await ReadLoop(conn);
@@ -108,8 +108,7 @@ namespace Weyvelength {
 			if (failure(zpp::bits::in{ body }(msg)))
 				co_return;
 
-			if (std::holds_alternative<Proto::Ping>(msg))
-				SendTo(conn->id, Proto::Pong{});
+			HandleMessage(conn, msg);
 		}
 	}
 
@@ -135,8 +134,16 @@ namespace Weyvelength {
 	void Server::SendFrame(uint32_t id, std::vector<std::byte> frame)
 	{
 		auto it = _connections.find(id);
-		if (it != _connections.end())
+		if (it != _connections.end()) {
 			Enqueue(it->second, std::move(frame));
+		}
+	}
+
+	void Server::HandleMessage(std::shared_ptr<Connection> conn, const Proto::ServerMessage& msg)
+	{
+		if (auto* ping = std::get_if<Proto::Heartbeat>(&msg)) {
+			SendTo(conn->id, Proto::Heartbeat{ ping->timestamp });
+		}
 	}
 
 	void Server::SendTo(uint32_t id, const Proto::ServerMessage& msg)
@@ -148,7 +155,8 @@ namespace Weyvelength {
 	{
 		std::vector<std::byte> frame = Proto::FrameMessage(msg);   // serialize once
 
-		for (uint32_t id : ids)
+		for (uint32_t id : ids) {
 			SendFrame(id, frame);
+		}
 	}
 }

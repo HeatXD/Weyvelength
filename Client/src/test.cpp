@@ -23,16 +23,24 @@ int main()
 	while (client.Poll()) {
 		Proto::ServerMessage msg;
 		while (client.Next(msg)) {
-			if (std::holds_alternative<Proto::Pong>(msg))
+			if (auto* pong = std::get_if<Proto::Heartbeat>(&msg)) {
+				uint64_t now_ticks = std::chrono::steady_clock::now().time_since_epoch().count();
+				uint64_t rtt_ticks = now_ticks - pong->timestamp;
+
+				auto rtt = std::chrono::steady_clock::duration(rtt_ticks);
+				auto rtt_ms = std::chrono::duration_cast<std::chrono::milliseconds>(rtt).count();
+
 				std::cout << "Pong (i am client " << client.Id() << ")\n";
+				std::cout << "RTT: " << rtt_ms << " ms\n";
+			}
 		}
 
 		auto now = std::chrono::steady_clock::now();
 		if (now - last >= std::chrono::seconds(1)) {
-			client.Send(Proto::Ping{});
+			client.SendServer(Proto::Heartbeat{ (uint64_t)now.time_since_epoch().count() });
 			last = now;
 		}
-		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 
 	std::cout << "Connection closed\n";

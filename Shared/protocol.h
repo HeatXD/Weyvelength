@@ -4,12 +4,12 @@
 #include <variant>
 
 namespace Weyvelength::Proto {
-	struct Ping {};   // server -> client heartbeat
-	struct Pong {};   // client -> server reply
-	struct AssignId { uint32_t id = 0; };   // server -> client: the client's own connection id
+	struct Heartbeat { uint64_t timestamp; };   // server <-> client heartbeat
+	struct AssignClientId { uint32_t id = 0; };  // server -> client: the client's own connection id
+	struct AssignRoomId { std::string id; }; // server -> client: the room id the client has joined successfully
 
 	// All traffic on the server connection, both directions.
-	using ServerMessage = std::variant<Ping, Pong, AssignId>;
+	using ServerMessage = std::variant<Heartbeat, AssignClientId, AssignRoomId>;
 
 	struct tmp {};
 	using P2PMessage = std::variant<tmp>;   // peer-to-peer channel, unused for now

@@ -25,11 +25,12 @@ namespace Weyvelength {
 
 		bool Next(Proto::ServerMessage& out);
 
-		bool Send(const Proto::ServerMessage& msg);
+		bool SendServer(const Proto::ServerMessage& msg);
 
-		uint32_t Id() const { return _id; }   // 0 until the server has assigned one
+		uint32_t Id() const;  // 0 until the server has assigned one
 
 	private:
+		bool PollServer();
 		bool DrainServer();
 		bool CarveServer();
 		bool FlushServer();
