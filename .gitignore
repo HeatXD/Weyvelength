@@ -8,3 +8,5 @@
 /x64/Debug
 /Server/x64/Debug
 /Client/x64/Debug
+/Server/Server/x64/Debug
+/Server/Server.vcxproj.user
