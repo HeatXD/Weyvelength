@@ -2,6 +2,8 @@
 
 #include <array>
 #include <iostream>
+#include <random>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -18,6 +20,18 @@ namespace Weyvelength {
 	{
 		conn->out.push_back(std::move(frame));
 		conn->wake.cancel();
+	}
+
+	static std::string MakeRoomCode()
+	{
+		static std::mt19937 rng{ std::random_device{}() };
+		static constexpr char alphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   // no 0/O/1/I
+		std::uniform_int_distribution<size_t> pick{ 0, sizeof(alphabet) - 2 };
+
+		std::string code(5, '?');
+		for (char& c : code)
+			c = alphabet[pick(rng)];
+		return code;
 	}
 
 	bool Server::Init(ServerConfig& config)
@@ -86,6 +100,7 @@ namespace Weyvelength {
 		asio::error_code ec;
 
 		conn->socket.close(ec);
+		LeaveRoom(conn);
 		_connections.erase(conn->id);
 
 		std::cout << "Client " << conn->id << " disconnected\n";
@@ -144,6 +159,79 @@ namespace Weyvelength {
 		if (auto* ping = std::get_if<Proto::Heartbeat>(&msg)) {
 			SendTo(conn->id, Proto::Heartbeat{ ping->timestamp });
 		}
+		else if (std::get_if<Proto::CreateRoom>(&msg)) {
+			HandleCreateRoom(conn);
+		}
+		else if (auto* join = std::get_if<Proto::JoinRoom>(&msg)) {
+			HandleJoinRoom(conn, *join);
+		}
+		else if (auto* chat = std::get_if<Proto::RoomChat>(&msg)) {
+			HandleRoomChat(conn, *chat);
+		}
+	}
+
+	void Server::HandleCreateRoom(const std::shared_ptr<Connection>& conn)
+	{
+		if (!conn->room.empty()) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::AlreadyInRoom, conn->room });
+			return;
+		}
+
+		std::string code = MakeRoomCode();
+		while (_rooms.contains(code))
+			code = MakeRoomCode();
+
+		_rooms.emplace(code, Room{ code, { conn->id } });
+		conn->room = code;
+		SendTo(conn->id, Proto::AssignRoomId{ code });
+
+		std::cout << "Client " << conn->id << " created room " << code << "\n";
+	}
+
+	void Server::HandleJoinRoom(const std::shared_ptr<Connection>& conn, const Proto::JoinRoom& msg)
+	{
+		if (!conn->room.empty()) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::AlreadyInRoom, conn->room });
+			return;
+		}
+
+		auto it = _rooms.find(msg.id);
+		if (it == _rooms.end()) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::NoSuchRoom, msg.id });
+			return;
+		}
+
+		it->second.members.push_back(conn->id);
+		conn->room = msg.id;
+		SendTo(conn->id, Proto::AssignRoomId{ msg.id });
+
+		std::cout << "Client " << conn->id << " joined room " << msg.id << "\n";
+	}
+
+	void Server::HandleRoomChat(const std::shared_ptr<Connection>& conn, const Proto::RoomChat& msg)
+	{
+		auto it = _rooms.find(conn->room);
+		if (it == _rooms.end()) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::NotInRoom, {} });
+			return;
+		}
+
+		// sender included: everyone in the room sees the same stream
+		SendToMany(it->second.members, Proto::RoomChat{ conn->id, msg.text });
+	}
+
+	void Server::LeaveRoom(const std::shared_ptr<Connection>& conn)
+	{
+		if (conn->room.empty())
+			return;
+
+		auto it = _rooms.find(conn->room);
+		if (it != _rooms.end()) {
+			std::erase(it->second.members, conn->id);
+			if (it->second.members.empty())
+				_rooms.erase(it);
+		}
+		conn->room.clear();
 	}
 
 	void Server::SendTo(uint32_t id, const Proto::ServerMessage& msg)
