@@ -6,7 +6,7 @@ int main()
 {
 	using namespace Weyvelength;
 
-	std::cout << std::unitbuf;   // flush every print so redirected output is live
+	std::cout << std::unitbuf; // flush every print so redirected output is live
 
 	ServerConfig config{ .port = 5555 };
 

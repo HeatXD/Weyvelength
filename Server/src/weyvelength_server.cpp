@@ -25,7 +25,7 @@ namespace Weyvelength {
 	static std::string MakeRoomCode()
 	{
 		static std::mt19937 rng{ std::random_device{}() };
-		static constexpr char alphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   // no 0/O/1/I
+		static constexpr char alphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I
 		std::uniform_int_distribution<size_t> pick{ 0, sizeof(alphabet) - 2 };
 
 		std::string code(5, '?');

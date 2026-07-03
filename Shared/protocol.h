@@ -15,14 +15,16 @@ namespace Weyvelength::Proto {
 		NotInRoom,
 	};
 
-	struct CreateRoom {};                // client -> server: create a room and join it
+	struct CreateRoom {}; // client -> server: create a room and join it
 	struct JoinRoom { std::string id; }; // client -> server: join an existing room by id
-	struct RoomError {                   // server -> client: a room request failed
+
+	struct RoomError { // server -> client: a room request failed
 		RoomErrorCode code{};
-		std::string context;             // extra detail, e.g. the offending room id
+		std::string context; // extra detail, e.g. the offending room id
 	};
-	struct RoomChat {                         // client -> server: broadcast text to the sender's room
-		uint32_t from = 0;                    // server -> client: filled in with the sender's id
+
+	struct RoomChat { // client -> server: broadcast text to the sender's room
+		uint32_t from = 0; // server -> client: filled in with the sender's id
 		std::string text;
 	};
 

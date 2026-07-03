@@ -82,7 +82,7 @@ namespace Weyvelength {
 
 	bool Client::SendChat(const std::string& text)
 	{
-		return SendServer(Proto::RoomChat{ 0, text });   // server fills in the sender id
+		return SendServer(Proto::RoomChat{ 0, text }); // server fills in the sender id
 	}
 
 	uint32_t Client::Id() const
@@ -140,7 +140,7 @@ namespace Weyvelength {
 			}
 			else {
 				if (auto* room = std::get_if<Proto::AssignRoomId>(&msg))
-					_room = room->id;   // cached for RoomId(), but still surfaced via Next()
+					_room = room->id; // cached for RoomId(), but still surfaced via Next()
 				_inbox.push(std::move(msg));
 			}
 			remaining = remaining.subspan(header_size + len);

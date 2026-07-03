@@ -25,7 +25,7 @@ namespace Weyvelength {
 
 	struct Connection {
 		uint32_t id = 0;
-		std::string room;   // empty = not in a room
+		std::string room; // empty = not in a room
 		asio::ip::tcp::socket socket;
 
 		std::deque<std::vector<std::byte>> out; // outbound queue; WriteLoop is the sole writer
