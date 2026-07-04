@@ -80,9 +80,24 @@ namespace Weyvelength {
 		return SendServer(Proto::JoinRoom{ id });
 	}
 
+	bool Client::LeaveRoom()
+	{
+		return SendServer(Proto::LeaveRoom{});
+	}
+
 	bool Client::SendChat(const std::string& text)
 	{
 		return SendServer(Proto::RoomChat{ 0, text }); // server fills in the sender id
+	}
+
+	bool Client::SetRoomData(const std::string& key, const std::string& value)
+	{
+		return SendServer(Proto::SetRoomData{ key, value });
+	}
+
+	bool Client::DeleteRoomData(const std::string& key)
+	{
+		return SendServer(Proto::SetRoomData{ key, {} }); // empty value = delete
 	}
 
 	uint32_t Client::Id() const
@@ -93,6 +108,33 @@ namespace Weyvelength {
 	const std::string& Client::RoomId() const
 	{
 		return _room;
+	}
+
+	uint32_t Client::Host() const
+	{
+		return _host;
+	}
+
+	bool Client::IsHost() const
+	{
+		return _id != 0 && _id == _host;
+	}
+
+	const std::vector<uint32_t>& Client::Members() const
+	{
+		return _members;
+	}
+
+	const std::map<std::string, std::string>& Client::RoomData() const
+	{
+		return _data;
+	}
+
+	const std::string& Client::RoomData(const std::string& key) const
+	{
+		static const std::string none;
+		auto it = _data.find(key);
+		return it == _data.end() ? none : it->second;
 	}
 
 	bool Client::DrainServer()
@@ -139,8 +181,7 @@ namespace Weyvelength {
 				_id = assign->id;   // transport metadata; not surfaced via Next()
 			}
 			else {
-				if (auto* room = std::get_if<Proto::AssignRoomId>(&msg))
-					_room = room->id; // cached for RoomId(), but still surfaced via Next()
+				CacheRoomState(msg); // cached for the accessors, but still surfaced via Next()
 				_inbox.push(std::move(msg));
 			}
 			remaining = remaining.subspan(header_size + len);
@@ -169,9 +210,48 @@ namespace Weyvelength {
 		return true;
 	}
 
+	// Mirrors room events into the local caches as frames are carved, so the
+	// accessors are already current when Next() hands the event to the app.
+	void Client::CacheRoomState(const Proto::ServerMessage& msg)
+	{
+		if (auto* room = std::get_if<Proto::AssignRoomId>(&msg)) {
+			_room = room->id;
+			_host = 0;
+			_members.assign(1, _id); // events only ever announce the others
+			_data.clear();
+		}
+		else if (auto* joined = std::get_if<Proto::PeerJoined>(&msg)) {
+			_members.push_back(joined->id);
+		}
+		else if (auto* left = std::get_if<Proto::PeerLeft>(&msg)) {
+			if (left->id == _id)
+				ClearRoomState(); // our own id = our LeaveRoom went through
+			else
+				std::erase(_members, left->id);
+		}
+		else if (auto* host = std::get_if<Proto::HostChanged>(&msg)) {
+			_host = host->id;
+		}
+		else if (auto* data = std::get_if<Proto::RoomDataChanged>(&msg)) {
+			if (data->value.empty())
+				_data.erase(data->key);
+			else
+				_data[data->key] = data->value;
+		}
+	}
+
+	void Client::ClearRoomState()
+	{
+		_room.clear();
+		_host = 0;
+		_members.clear();
+		_data.clear();
+	}
+
 	bool Client::DisconnectServer()
 	{
 		_asio->socket.close();
+		ClearRoomState();
 		return false;
 	}
 }
