@@ -55,23 +55,39 @@ static void PrintRoomError(const Weyvelength::Proto::RoomError& error)
 static void PrintRoomInfo(const Weyvelength::Client& client)
 {
 	std::cout << "Room " << client.RoomId() << ", host " << client.Host() << (client.IsHost() ? " (you)" : "") << "\n";
+
 	std::cout << "Members:";
-	for (uint32_t id : client.Members())
+	for (uint32_t id : client.Members()) {
 		std::cout << " " << id;
+	}
 	std::cout << "\n";
-	for (const auto& [key, value] : client.RoomData())
+
+	for (const auto& [key, value] : client.RoomData()) {
 		std::cout << "  " << key << " = " << value << "\n";
+	}
+
+	for (uint32_t id : client.Members()) {
+		for (const auto& [key, value] : client.MemberData(id)) {
+			std::cout << "  client " << id << ": " << key << " = " << value << "\n";
+		}
+	}
 }
 
-// "/set KEY VALUE" -> SetRoomData; the value may contain spaces.
-static void SendSetCommand(Weyvelength::Client& client, const std::string& args)
+// "/set KEY VALUE" or "/setme KEY VALUE"; the value may contain spaces.
+static void SendSetCommand(Weyvelength::Client& client, const std::string& args, bool own)
 {
 	size_t space = args.find(' ');
 	if (space == std::string::npos || space == 0) {
-		std::cout << "usage: /set KEY VALUE\n";
+		std::cout << "usage: " << (own ? "/setme" : "/set") << " KEY VALUE\n";
 		return;
 	}
-	client.SetRoomData(args.substr(0, space), args.substr(space + 1));
+
+	std::string key = args.substr(0, space);
+	std::string value = args.substr(space + 1);
+	if (own)
+		client.SetMemberData(key, value);
+	else
+		client.SetRoomData(key, value);
 }
 
 // Ping the server once a second; it replies with a pong.
@@ -116,7 +132,7 @@ static int RunChat(Weyvelength::Client& client, const std::string& code)
 		while (client.Next(msg)) {
 			if (auto* room = std::get_if<Proto::AssignRoomId>(&msg)) {
 				std::cout << "In room " << room->id << " (join it: test chat " << room->id << ")\n";
-				std::cout << "Commands: /who, /set KEY VALUE, /del KEY, /leave\n";
+				std::cout << "Commands: /who, /set KEY VALUE, /del KEY, /setme KEY VALUE, /delme KEY, /leave\n";
 			}
 			else if (auto* error = std::get_if<Proto::RoomError>(&msg)) {
 				PrintRoomError(*error);
@@ -145,6 +161,12 @@ static int RunChat(Weyvelength::Client& client, const std::string& code)
 				else
 					std::cout << "* room data: " << data->key << " = " << data->value << "\n";
 			}
+			else if (auto* member = std::get_if<Proto::MemberDataChanged>(&msg)) {
+				if (member->value.empty())
+					std::cout << "* client " << member->id << " data: " << member->key << " deleted\n";
+				else
+					std::cout << "* client " << member->id << " data: " << member->key << " = " << member->value << "\n";
+			}
 		}
 
 		// Lines typed before the room is joined stay queued until it is.
@@ -156,8 +178,12 @@ static int RunChat(Weyvelength::Client& client, const std::string& code)
 				PrintRoomInfo(client);
 			else if (line == "/leave")
 				client.LeaveRoom();
+			else if (line.rfind("/setme ", 0) == 0)
+				SendSetCommand(client, line.substr(7), true);
+			else if (line.rfind("/delme ", 0) == 0)
+				client.DeleteMemberData(line.substr(7));
 			else if (line.rfind("/set ", 0) == 0)
-				SendSetCommand(client, line.substr(5));
+				SendSetCommand(client, line.substr(5), false);
 			else if (line.rfind("/del ", 0) == 0)
 				client.DeleteRoomData(line.substr(5));
 			else
