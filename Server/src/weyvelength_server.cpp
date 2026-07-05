@@ -177,6 +177,9 @@ namespace Weyvelength {
 		else if (auto* set = std::get_if<Proto::SetRoomData>(&msg)) {
 			HandleSetRoomData(conn, *set);
 		}
+		else if (auto* setMember = std::get_if<Proto::SetMemberData>(&msg)) {
+			HandleSetMemberData(conn, *setMember);
+		}
 	}
 
 	void Server::HandleCreateRoom(const std::shared_ptr<Connection>& conn)
@@ -217,11 +220,22 @@ namespace Weyvelength {
 		// hydrate the joiner with the same events everyone else already
 		// understands: one per existing member, the host, one per data key
 		SendTo(conn->id, Proto::AssignRoomId{ msg.id });
-		for (uint32_t member : room.members)
+
+		for (uint32_t member : room.members) {
 			SendTo(conn->id, Proto::PeerJoined{ member });
+		}
+
 		SendTo(conn->id, Proto::HostChanged{ room.host });
-		for (const auto& [key, value] : room.data)
+
+		for (const auto& [key, value] : room.data) {
 			SendTo(conn->id, Proto::RoomDataChanged{ key, value });
+		}
+
+		for (const auto& [member, data] : room.member_data) {
+			for (const auto& [key, value] : data) {
+				SendTo(conn->id, Proto::MemberDataChanged{ member, key, value });
+			}
+		}
 
 		room.members.push_back(conn->id);
 		conn->room = msg.id;
@@ -294,6 +308,45 @@ namespace Weyvelength {
 		SendToMany(room.members, Proto::RoomDataChanged{ msg.key, msg.value });
 	}
 
+	void Server::HandleSetMemberData(const std::shared_ptr<Connection>& conn, const Proto::SetMemberData& msg)
+	{
+		auto it = _rooms.find(conn->room);
+		if (it == _rooms.end()) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::NotInRoom, {} });
+			return;
+		}
+
+		if (msg.key.empty() || msg.key.size() > Proto::max_room_data_key || msg.value.size() > Proto::max_room_data_value) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::BadRoomData, msg.key });
+			return;
+		}
+
+		Room& room = it->second;
+		if (msg.value.empty()) { // empty value = delete
+			auto member = room.member_data.find(conn->id);
+			if (member == room.member_data.end() || member->second.erase(msg.key) == 0)
+				return; // nothing deleted, nothing to announce
+			if (member->second.empty())
+				room.member_data.erase(member);
+		}
+		else {
+			auto& data = room.member_data[conn->id];
+			auto [entry, inserted] = data.try_emplace(msg.key, msg.value);
+			if (inserted && data.size() > Proto::max_member_data_keys) {
+				data.erase(entry);
+				SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::BadRoomData, msg.key });
+				return;
+			}
+			if (!inserted) {
+				if (entry->second == msg.value)
+					return; // unchanged, nothing to announce
+				entry->second = msg.value;
+			}
+		}
+
+		SendToMany(room.members, Proto::MemberDataChanged{ conn->id, msg.key, msg.value });
+	}
+
 	void Server::LeaveRoom(const std::shared_ptr<Connection>& conn)
 	{
 		if (conn->room.empty())
@@ -303,6 +356,7 @@ namespace Weyvelength {
 		if (it != _rooms.end()) {
 			Room& room = it->second;
 			std::erase(room.members, conn->id);
+			room.member_data.erase(conn->id);
 			if (room.members.empty()) {
 				_rooms.erase(it);
 				std::cout << "Room " << conn->room << " closed\n";

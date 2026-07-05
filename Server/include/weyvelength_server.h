@@ -46,6 +46,7 @@ namespace Weyvelength {
 		uint32_t host = 0; // the creator, until they leave
 		std::vector<uint32_t> members;
 		std::map<std::string, std::string> data; // metadata, mirrored to every member as RoomDataChanged events
+		std::map<uint32_t, std::map<std::string, std::string>> member_data; // per-member metadata, dropped when the member leaves
 	};
 
 	struct Server {
@@ -63,6 +64,7 @@ namespace Weyvelength {
 		void HandleLeaveRoom(const std::shared_ptr<Connection>& conn);
 		void HandleRoomChat(const std::shared_ptr<Connection>& conn, const Proto::RoomChat& msg);
 		void HandleSetRoomData(const std::shared_ptr<Connection>& conn, const Proto::SetRoomData& msg);
+		void HandleSetMemberData(const std::shared_ptr<Connection>& conn, const Proto::SetMemberData& msg);
 		void LeaveRoom(const std::shared_ptr<Connection>& conn);
 
 		asio::awaitable<void> AcceptLoop();
