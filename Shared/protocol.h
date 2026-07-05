@@ -45,20 +45,32 @@ namespace Weyvelength::Proto {
 		std::string value;
 	};
 
+	struct SetMemberData { // client -> server: set one key of your own member metadata; empty value deletes it
+		std::string key;
+		std::string value;
+	};
+
+	struct MemberDataChanged { // server -> client: one key of a member's metadata changed; empty value means deleted
+		uint32_t id = 0; // whose data
+		std::string key;
+		std::string value;
+	};
+
 	// All traffic on the server connection, both directions. Only append new
 	// messages: zpp_bits encodes the variant index, so inserting in the middle
 	// breaks peers built against the old order.
 	using ServerMessage = std::variant<Heartbeat, AssignClientId, AssignRoomId, CreateRoom, JoinRoom, RoomError, RoomChat,
-		LeaveRoom, PeerJoined, PeerLeft, HostChanged, SetRoomData, RoomDataChanged>;
+		LeaveRoom, PeerJoined, PeerLeft, HostChanged, SetRoomData, RoomDataChanged, SetMemberData, MemberDataChanged>;
 
 	struct tmp {};
 	using P2PMessage = std::variant<tmp>;   // peer-to-peer channel, unused for now
 
 	constexpr uint32_t max_message_size = 1024;
 
-	// Room metadata limits. One key/value pair per frame, so the pair caps
-	// keep SetRoomData/RoomDataChanged under max_message_size.
-	constexpr size_t max_room_data_key = 255;
-	constexpr size_t max_room_data_value = 700;
-	constexpr size_t max_room_data_keys = 64;
+	// Metadata limits, shared by room and member data. One key/value pair per
+	// frame, so the pair caps keep every data message under max_message_size.
+	constexpr uint32_t max_room_data_key = 128;
+	constexpr uint32_t max_room_data_value = 512;
+	constexpr uint32_t max_room_data_keys = 64;
+	constexpr uint32_t max_member_data_keys = 16;
 }
