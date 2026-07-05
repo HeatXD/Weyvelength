@@ -1,12 +1,12 @@
 #include "weyvelength_server.h"
 
 #include <array>
-#include <iostream>
 #include <random>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include <spdlog/spdlog.h>
 #include <thirdparty\asio\asio.hpp>
 #include <thirdparty\zpp_bits\zpp_bits.h>
 
@@ -56,7 +56,7 @@ namespace Weyvelength {
 		_acceptor.listen(asio::socket_base::max_listen_connections, ec);
 		if (ec) return false;
 
-		std::cout << "Listening on port " << config.port << "\n";
+		spdlog::info("Listening on port {}", config.port);
 		return true;
 	}
 
@@ -80,7 +80,7 @@ namespace Weyvelength {
 			auto conn = std::make_shared<Connection>(id, std::move(socket));
 			_connections.emplace(id, conn);
 
-			std::cout << "Client " << id << " connected\n";
+			spdlog::info("Client {} connected", id);
 			asio::co_spawn(_context, Session(conn), asio::detached);
 		}
 	}
@@ -106,7 +106,7 @@ namespace Weyvelength {
 		LeaveRoom(conn);
 		_connections.erase(conn->id);
 
-		std::cout << "Client " << conn->id << " disconnected\n";
+		spdlog::info("Client {} disconnected", conn->id);
 	}
 
 	asio::awaitable<void> Server::ReadLoop(std::shared_ptr<Connection> conn)
@@ -198,7 +198,7 @@ namespace Weyvelength {
 		SendTo(conn->id, Proto::AssignRoomId{ code });
 		SendTo(conn->id, Proto::HostChanged{ conn->id }); // the host cache has a single source: this event
 
-		std::cout << "Client " << conn->id << " created room " << code << "\n";
+		spdlog::info("Client {} created room {}", conn->id, code);
 	}
 
 	void Server::HandleJoinRoom(const std::shared_ptr<Connection>& conn, const Proto::JoinRoom& msg)
@@ -240,7 +240,7 @@ namespace Weyvelength {
 		room.members.push_back(conn->id);
 		conn->room = msg.id;
 
-		std::cout << "Client " << conn->id << " joined room " << msg.id << "\n";
+		spdlog::info("Client {} joined room {}", conn->id, msg.id);
 	}
 
 	void Server::HandleLeaveRoom(const std::shared_ptr<Connection>& conn)
@@ -359,14 +359,14 @@ namespace Weyvelength {
 			room.member_data.erase(conn->id);
 			if (room.members.empty()) {
 				_rooms.erase(it);
-				std::cout << "Room " << conn->room << " closed\n";
+				spdlog::info("Room {} closed", conn->room);
 			}
 			else {
 				SendToMany(room.members, Proto::PeerLeft{ conn->id });
 				if (room.host == conn->id) {
 					room.host = room.members.front(); // oldest remaining member
 					SendToMany(room.members, Proto::HostChanged{ room.host });
-					std::cout << "Client " << room.host << " now hosts room " << conn->room << "\n";
+					spdlog::info("Client {} now hosts room {}", room.host, conn->room);
 				}
 			}
 		}
