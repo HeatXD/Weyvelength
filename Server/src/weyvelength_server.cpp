@@ -8,8 +8,8 @@
 #include <vector>
 
 #include <spdlog/spdlog.h>
-#include <thirdparty\asio\asio.hpp>
-#include <thirdparty\zpp_bits\zpp_bits.h>
+#include <thirdparty/asio/asio.hpp>
+#include <thirdparty/zpp_bits/zpp_bits.h>
 
 #include "framing.h"
 
