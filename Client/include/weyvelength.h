@@ -35,6 +35,8 @@ namespace Weyvelength {
 		bool SendChat(const std::string& text); // broadcast to everyone in the current room
 		bool SetRoomData(const std::string& key, const std::string& value); // host-only; server replies RoomDataChanged or RoomError
 		bool DeleteRoomData(const std::string& key); // host-only; sugar for an empty-value SetRoomData
+		bool SetMemberData(const std::string& key, const std::string& value); // our own slots; server replies MemberDataChanged or RoomError
+		bool DeleteMemberData(const std::string& key); // sugar for an empty-value SetMemberData
 
 		uint32_t Id() const;  // 0 until the server has assigned one
 		const std::string& RoomId() const; // empty until a room has been joined
@@ -43,6 +45,8 @@ namespace Weyvelength {
 		const std::vector<uint32_t>& Members() const; // everyone in the room, ourselves included
 		const std::map<std::string, std::string>& RoomData() const;
 		const std::string& RoomData(const std::string& key) const; // empty if the key is not set
+		const std::map<std::string, std::string>& MemberData(uint32_t id) const; // empty if the member has set nothing
+		const std::string& MemberData(uint32_t id, const std::string& key) const; // empty if the key is not set
 
 	private:
 		bool PollServer();
@@ -60,5 +64,6 @@ namespace Weyvelength {
 		uint32_t _host = 0;
 		std::vector<uint32_t> _members;
 		std::map<std::string, std::string> _data;
+		std::map<uint32_t, std::map<std::string, std::string>> _member_data;
 	};
 }

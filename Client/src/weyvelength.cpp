@@ -100,6 +100,16 @@ namespace Weyvelength {
 		return SendServer(Proto::SetRoomData{ key, {} }); // empty value = delete
 	}
 
+	bool Client::SetMemberData(const std::string& key, const std::string& value)
+	{
+		return SendServer(Proto::SetMemberData{ key, value });
+	}
+
+	bool Client::DeleteMemberData(const std::string& key)
+	{
+		return SendServer(Proto::SetMemberData{ key, {} }); // empty value = delete
+	}
+
 	uint32_t Client::Id() const
 	{
 		return _id;
@@ -135,6 +145,21 @@ namespace Weyvelength {
 		static const std::string none;
 		auto it = _data.find(key);
 		return it == _data.end() ? none : it->second;
+	}
+
+	const std::map<std::string, std::string>& Client::MemberData(uint32_t id) const
+	{
+		static const std::map<std::string, std::string> none;
+		auto it = _member_data.find(id);
+		return it == _member_data.end() ? none : it->second;
+	}
+
+	const std::string& Client::MemberData(uint32_t id, const std::string& key) const
+	{
+		static const std::string none;
+		const auto& data = MemberData(id);
+		auto it = data.find(key);
+		return it == data.end() ? none : it->second;
 	}
 
 	bool Client::DrainServer()
@@ -219,15 +244,19 @@ namespace Weyvelength {
 			_host = 0;
 			_members.assign(1, _id); // events only ever announce the others
 			_data.clear();
+			_member_data.clear();
 		}
 		else if (auto* joined = std::get_if<Proto::PeerJoined>(&msg)) {
 			_members.push_back(joined->id);
 		}
 		else if (auto* left = std::get_if<Proto::PeerLeft>(&msg)) {
-			if (left->id == _id)
+			if (left->id == _id) {
 				ClearRoomState(); // our own id = our LeaveRoom went through
-			else
+			}
+			else {
 				std::erase(_members, left->id);
+				_member_data.erase(left->id);
+			}
 		}
 		else if (auto* host = std::get_if<Proto::HostChanged>(&msg)) {
 			_host = host->id;
@@ -238,6 +267,19 @@ namespace Weyvelength {
 			else
 				_data[data->key] = data->value;
 		}
+		else if (auto* member = std::get_if<Proto::MemberDataChanged>(&msg)) {
+			if (member->value.empty()) {
+				auto it = _member_data.find(member->id);
+				if (it != _member_data.end()) {
+					it->second.erase(member->key);
+					if (it->second.empty())
+						_member_data.erase(it);
+				}
+			}
+			else {
+				_member_data[member->id][member->key] = member->value;
+			}
+		}
 	}
 
 	void Client::ClearRoomState()
@@ -246,6 +288,7 @@ namespace Weyvelength {
 		_host = 0;
 		_members.clear();
 		_data.clear();
+		_member_data.clear();
 	}
 
 	bool Client::DisconnectServer()
