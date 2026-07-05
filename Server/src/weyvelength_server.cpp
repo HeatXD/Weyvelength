@@ -1,5 +1,6 @@
 #include "weyvelength_server.h"
 
+#include <algorithm>
 #include <array>
 #include <random>
 #include <string>
@@ -180,6 +181,36 @@ namespace Weyvelength {
 		else if (auto* setMember = std::get_if<Proto::SetMemberData>(&msg)) {
 			HandleSetMemberData(conn, *setMember);
 		}
+		else if (auto* kick = std::get_if<Proto::KickMember>(&msg)) {
+			HandleKickMember(conn, *kick);
+		}
+		else if (auto* transfer = std::get_if<Proto::TransferHost>(&msg)) {
+			HandleTransferHost(conn, *transfer);
+		}
+		else if (auto* joinable = std::get_if<Proto::SetRoomJoinable>(&msg)) {
+			HandleSetRoomJoinable(conn, *joinable);
+		}
+		else if (auto* password = std::get_if<Proto::SetRoomPassword>(&msg)) {
+			HandleSetRoomPassword(conn, *password);
+		}
+	}
+
+	// Shared preamble of every host-only action: resolves the sender's room
+	// and checks host status, sending the appropriate error on failure.
+	Room* Server::HostRoom(const std::shared_ptr<Connection>& conn)
+	{
+		auto it = _rooms.find(conn->room);
+		if (it == _rooms.end()) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::NotInRoom, {} });
+			return nullptr;
+		}
+
+		if (it->second.host != conn->id) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::NotHost, {} });
+			return nullptr;
+		}
+
+		return &it->second;
 	}
 
 	void Server::HandleCreateRoom(const std::shared_ptr<Connection>& conn)
@@ -215,6 +246,16 @@ namespace Weyvelength {
 		}
 
 		Room& room = it->second;
+		if (!room.open) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::RoomClosed, msg.id });
+			return;
+		}
+
+		if (!room.password.empty() && msg.password != room.password) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::BadPassword, msg.id });
+			return;
+		}
+
 		SendToMany(room.members, Proto::PeerJoined{ conn->id });
 
 		// hydrate the joiner with the same events everyone else already
@@ -226,6 +267,7 @@ namespace Weyvelength {
 		}
 
 		SendTo(conn->id, Proto::HostChanged{ room.host });
+		SendTo(conn->id, Proto::RoomAccessChanged{ room.open, !room.password.empty() });
 
 		for (const auto& [key, value] : room.data) {
 			SendTo(conn->id, Proto::RoomDataChanged{ key, value });
@@ -268,18 +310,11 @@ namespace Weyvelength {
 
 	void Server::HandleSetRoomData(const std::shared_ptr<Connection>& conn, const Proto::SetRoomData& msg)
 	{
-		auto it = _rooms.find(conn->room);
-		if (it == _rooms.end()) {
-			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::NotInRoom, {} });
+		Room* hosted = HostRoom(conn);
+		if (!hosted)
 			return;
-		}
 
-		Room& room = it->second;
-		if (room.host != conn->id) {
-			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::NotHost, msg.key });
-			return;
-		}
-
+		Room& room = *hosted;
 		if (msg.key.empty() || msg.key.size() > Proto::max_room_data_key || msg.value.size() > Proto::max_room_data_value) {
 			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::BadRoomData, msg.key });
 			return;
@@ -345,6 +380,79 @@ namespace Weyvelength {
 		}
 
 		SendToMany(room.members, Proto::MemberDataChanged{ conn->id, msg.key, msg.value });
+	}
+
+	void Server::HandleKickMember(const std::shared_ptr<Connection>& conn, const Proto::KickMember& msg)
+	{
+		Room* room = HostRoom(conn);
+		if (!room)
+			return;
+
+		auto target = _connections.find(msg.id);
+		if (msg.id == conn->id || target == _connections.end() || target->second->room != room->id) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::NoSuchMember, std::to_string(msg.id) });
+			return;
+		}
+
+		SendTo(msg.id, Proto::Kicked{});
+		LeaveRoom(target->second); // removal + PeerLeft broadcast, same as any other exit
+
+		std::cout << "Client " << msg.id << " kicked from room " << room->id << " by client " << conn->id << "\n";
+	}
+
+	void Server::HandleTransferHost(const std::shared_ptr<Connection>& conn, const Proto::TransferHost& msg)
+	{
+		Room* room = HostRoom(conn);
+		if (!room)
+			return;
+
+		if (msg.id == conn->id)
+			return; // already the host, nothing to announce
+
+		if (std::ranges::find(room->members, msg.id) == room->members.end()) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::NoSuchMember, std::to_string(msg.id) });
+			return;
+		}
+
+		room->host = msg.id;
+		SendToMany(room->members, Proto::HostChanged{ room->host });
+
+		std::cout << "Client " << room->host << " now hosts room " << room->id << " (transferred)\n";
+	}
+
+	void Server::HandleSetRoomJoinable(const std::shared_ptr<Connection>& conn, const Proto::SetRoomJoinable& msg)
+	{
+		Room* room = HostRoom(conn);
+		if (!room)
+			return;
+
+		if (room->open == msg.open)
+			return; // unchanged, nothing to announce
+
+		room->open = msg.open;
+		SendToMany(room->members, Proto::RoomAccessChanged{ room->open, !room->password.empty() });
+
+		std::cout << "Room " << room->id << " is now " << (room->open ? "open" : "closed") << "\n";
+	}
+
+	void Server::HandleSetRoomPassword(const std::shared_ptr<Connection>& conn, const Proto::SetRoomPassword& msg)
+	{
+		Room* room = HostRoom(conn);
+		if (!room)
+			return;
+
+		if (msg.password.size() > Proto::max_room_password) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::BadPassword, {} });
+			return;
+		}
+
+		bool was_passworded = !room->password.empty();
+		if (room->password == msg.password)
+			return; // unchanged, nothing to announce
+
+		room->password = msg.password;
+		if (was_passworded != !room->password.empty()) // members only learn the flag, never the password
+			SendToMany(room->members, Proto::RoomAccessChanged{ room->open, !room->password.empty() });
 	}
 
 	void Server::LeaveRoom(const std::shared_ptr<Connection>& conn)
