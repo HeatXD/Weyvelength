@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -42,7 +43,10 @@ namespace Weyvelength {
 
 	struct Room {
 		std::string id;
+		uint32_t host = 0; // the creator, until they leave
 		std::vector<uint32_t> members;
+		std::map<std::string, std::string> data; // metadata, mirrored to every member as RoomDataChanged events
+		std::map<uint32_t, std::map<std::string, std::string>> member_data; // per-member metadata, dropped when the member leaves
 	};
 
 	struct Server {
@@ -57,7 +61,10 @@ namespace Weyvelength {
 		void HandleMessage(std::shared_ptr<Connection> conn, const Proto::ServerMessage& msg);
 		void HandleCreateRoom(const std::shared_ptr<Connection>& conn);
 		void HandleJoinRoom(const std::shared_ptr<Connection>& conn, const Proto::JoinRoom& msg);
+		void HandleLeaveRoom(const std::shared_ptr<Connection>& conn);
 		void HandleRoomChat(const std::shared_ptr<Connection>& conn, const Proto::RoomChat& msg);
+		void HandleSetRoomData(const std::shared_ptr<Connection>& conn, const Proto::SetRoomData& msg);
+		void HandleSetMemberData(const std::shared_ptr<Connection>& conn, const Proto::SetMemberData& msg);
 		void LeaveRoom(const std::shared_ptr<Connection>& conn);
 
 		asio::awaitable<void> AcceptLoop();

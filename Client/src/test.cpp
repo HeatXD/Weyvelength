@@ -52,6 +52,48 @@ static void PrintRoomError(const Weyvelength::Proto::RoomError& error)
 	std::cout << "\n";
 }
 
+static void PrintRoomInfo(const Weyvelength::Client& client)
+{
+	std::cout << "Room " << client.RoomId() << ", host " << client.Host() << (client.IsHost() ? " (you)" : "") << "\n";
+
+	std::cout << "Members:";
+	for (uint32_t id : client.Members()) {
+		std::cout << " " << id;
+	}
+	std::cout << "\n";
+
+	for (const auto& [key, value] : client.RoomData()) {
+		std::cout << "  " << key << " = " << value << "\n";
+	}
+
+	for (uint32_t id : client.Members()) {
+		const auto* data = client.MemberData(id);
+		if (!data)
+			continue;
+
+		for (const auto& [key, value] : *data) {
+			std::cout << "  client " << id << ": " << key << " = " << value << "\n";
+		}
+	}
+}
+
+// "/set KEY VALUE" or "/setme KEY VALUE"; the value may contain spaces.
+static void SendSetCommand(Weyvelength::Client& client, const std::string& args, bool own)
+{
+	size_t space = args.find(' ');
+	if (space == std::string::npos || space == 0) {
+		std::cout << "usage: " << (own ? "/setme" : "/set") << " KEY VALUE\n";
+		return;
+	}
+
+	std::string key = args.substr(0, space);
+	std::string value = args.substr(space + 1);
+	if (own)
+		client.SetMemberData(key, value);
+	else
+		client.SetRoomData(key, value);
+}
+
 // Ping the server once a second; it replies with a pong.
 static int RunPing(Weyvelength::Client& client)
 {
@@ -94,20 +136,61 @@ static int RunChat(Weyvelength::Client& client, const std::string& code)
 		while (client.Next(msg)) {
 			if (auto* room = std::get_if<Proto::AssignRoomId>(&msg)) {
 				std::cout << "In room " << room->id << " (join it: test chat " << room->id << ")\n";
+				std::cout << "Commands: /who, /set KEY VALUE, /del KEY, /setme KEY VALUE, /delme KEY, /leave\n";
 			}
 			else if (auto* error = std::get_if<Proto::RoomError>(&msg)) {
 				PrintRoomError(*error);
-				return 1;
+				if (client.RoomId().empty())
+					return 1; // create/join failed; nothing to chat in
 			}
 			else if (auto* chat = std::get_if<Proto::RoomChat>(&msg)) {
 				std::cout << "[client " << chat->from << "] " << chat->text << "\n";
+			}
+			else if (auto* joined = std::get_if<Proto::PeerJoined>(&msg)) {
+				std::cout << "* client " << joined->id << " is here\n";
+			}
+			else if (auto* left = std::get_if<Proto::PeerLeft>(&msg)) {
+				if (left->id == client.Id()) {
+					std::cout << "Left the room\n";
+					return 0;
+				}
+				std::cout << "* client " << left->id << " left\n";
+			}
+			else if (auto* host = std::get_if<Proto::HostChanged>(&msg)) {
+				std::cout << "* client " << host->id << " is the host" << (host->id == client.Id() ? " (you)" : "") << "\n";
+			}
+			else if (auto* data = std::get_if<Proto::RoomDataChanged>(&msg)) {
+				if (data->value.empty())
+					std::cout << "* room data: " << data->key << " deleted\n";
+				else
+					std::cout << "* room data: " << data->key << " = " << data->value << "\n";
+			}
+			else if (auto* member = std::get_if<Proto::MemberDataChanged>(&msg)) {
+				if (member->value.empty())
+					std::cout << "* client " << member->id << " data: " << member->key << " deleted\n";
+				else
+					std::cout << "* client " << member->id << " data: " << member->key << " = " << member->value << "\n";
 			}
 		}
 
 		// Lines typed before the room is joined stay queued until it is.
 		std::string line;
 		while (!client.RoomId().empty() && NextInputLine(line)) {
-			if (!line.empty())
+			if (line.empty())
+				continue;
+			if (line == "/who")
+				PrintRoomInfo(client);
+			else if (line == "/leave")
+				client.LeaveRoom();
+			else if (line.rfind("/setme ", 0) == 0)
+				SendSetCommand(client, line.substr(7), true);
+			else if (line.rfind("/delme ", 0) == 0)
+				client.DeleteMemberData(line.substr(7));
+			else if (line.rfind("/set ", 0) == 0)
+				SendSetCommand(client, line.substr(5), false);
+			else if (line.rfind("/del ", 0) == 0)
+				client.DeleteRoomData(line.substr(5));
+			else
 				client.SendChat(line);
 		}
 
