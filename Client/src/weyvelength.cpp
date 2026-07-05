@@ -75,14 +75,34 @@ namespace Weyvelength {
 		return SendServer(Proto::CreateRoom{});
 	}
 
-	bool Client::JoinRoom(const std::string& id)
+	bool Client::JoinRoom(const std::string& id, const std::string& password)
 	{
-		return SendServer(Proto::JoinRoom{ id });
+		return SendServer(Proto::JoinRoom{ id, password });
 	}
 
 	bool Client::LeaveRoom()
 	{
 		return SendServer(Proto::LeaveRoom{});
+	}
+
+	bool Client::KickMember(uint32_t id)
+	{
+		return SendServer(Proto::KickMember{ id });
+	}
+
+	bool Client::TransferHost(uint32_t id)
+	{
+		return SendServer(Proto::TransferHost{ id });
+	}
+
+	bool Client::SetRoomJoinable(bool open)
+	{
+		return SendServer(Proto::SetRoomJoinable{ open });
+	}
+
+	bool Client::SetRoomPassword(const std::string& password)
+	{
+		return SendServer(Proto::SetRoomPassword{ password });
 	}
 
 	bool Client::SendChat(const std::string& text)
@@ -128,6 +148,16 @@ namespace Weyvelength {
 	bool Client::IsHost() const
 	{
 		return _id != 0 && _id == _host;
+	}
+
+	bool Client::RoomJoinable() const
+	{
+		return _room_open;
+	}
+
+	bool Client::RoomPassworded() const
+	{
+		return _room_passworded;
 	}
 
 	const std::vector<uint32_t>& Client::Members() const
@@ -242,6 +272,8 @@ namespace Weyvelength {
 		if (auto* room = std::get_if<Proto::AssignRoomId>(&msg)) {
 			_room = room->id;
 			_host = 0;
+			_room_open = true;
+			_room_passworded = false;
 			_members.assign(1, _id); // events only ever announce the others
 			_data.clear();
 			_member_data.clear();
@@ -280,12 +312,21 @@ namespace Weyvelength {
 				_member_data[member->id][member->key] = member->value;
 			}
 		}
+		else if (std::get_if<Proto::Kicked>(&msg)) {
+			ClearRoomState(); // removed by the host; same cleanup as leaving
+		}
+		else if (auto* access = std::get_if<Proto::RoomAccessChanged>(&msg)) {
+			_room_open = access->open;
+			_room_passworded = access->passworded;
+		}
 	}
 
 	void Client::ClearRoomState()
 	{
 		_room.clear();
 		_host = 0;
+		_room_open = true;
+		_room_passworded = false;
 		_members.clear();
 		_data.clear();
 		_member_data.clear();
