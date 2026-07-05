@@ -140,26 +140,26 @@ namespace Weyvelength {
 		return _data;
 	}
 
-	const std::string& Client::RoomData(const std::string& key) const
+	const std::string* Client::RoomData(const std::string& key) const
 	{
-		static const std::string none;
 		auto it = _data.find(key);
-		return it == _data.end() ? none : it->second;
+		return it == _data.end() ? nullptr : &it->second;
 	}
 
-	const std::map<std::string, std::string>& Client::MemberData(uint32_t id) const
+	const std::map<std::string, std::string>* Client::MemberData(uint32_t id) const
 	{
-		static const std::map<std::string, std::string> none;
 		auto it = _member_data.find(id);
-		return it == _member_data.end() ? none : it->second;
+		return it == _member_data.end() ? nullptr : &it->second;
 	}
 
-	const std::string& Client::MemberData(uint32_t id, const std::string& key) const
+	const std::string* Client::MemberData(uint32_t id, const std::string& key) const
 	{
-		static const std::string none;
-		const auto& data = MemberData(id);
-		auto it = data.find(key);
-		return it == data.end() ? none : it->second;
+		const auto* data = MemberData(id);
+		if (!data)
+			return nullptr;
+
+		auto it = data->find(key);
+		return it == data->end() ? nullptr : &it->second;
 	}
 
 	bool Client::DrainServer()

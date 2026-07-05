@@ -67,7 +67,11 @@ static void PrintRoomInfo(const Weyvelength::Client& client)
 	}
 
 	for (uint32_t id : client.Members()) {
-		for (const auto& [key, value] : client.MemberData(id)) {
+		const auto* data = client.MemberData(id);
+		if (!data)
+			continue;
+
+		for (const auto& [key, value] : *data) {
 			std::cout << "  client " << id << ": " << key << " = " << value << "\n";
 		}
 	}

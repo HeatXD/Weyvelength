@@ -44,9 +44,9 @@ namespace Weyvelength {
 		bool IsHost() const;
 		const std::vector<uint32_t>& Members() const; // everyone in the room, ourselves included
 		const std::map<std::string, std::string>& RoomData() const;
-		const std::string& RoomData(const std::string& key) const; // empty if the key is not set
-		const std::map<std::string, std::string>& MemberData(uint32_t id) const; // empty if the member has set nothing
-		const std::string& MemberData(uint32_t id, const std::string& key) const; // empty if the key is not set
+		const std::string* RoomData(const std::string& key) const; // null if the key is not set
+		const std::map<std::string, std::string>* MemberData(uint32_t id) const; // null if the member has set nothing
+		const std::string* MemberData(uint32_t id, const std::string& key) const; // null if the key is not set
 
 	private:
 		bool PollServer();
