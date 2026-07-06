@@ -12,7 +12,7 @@
 #include <thirdparty\zpp_bits\zpp_bits.h>
 
 #include "framing.h"
-#include "private/p2p_mesh.h"
+#include "p2p_mesh.h"
 
 namespace Weyvelength {
 	struct ClientAsioImpl {

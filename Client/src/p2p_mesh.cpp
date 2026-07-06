@@ -1,5 +1,5 @@
 #include "weyvelength.h"
-#include "private/p2p_mesh.h"
+#include "p2p_mesh.h"
 
 #include <algorithm>
 
