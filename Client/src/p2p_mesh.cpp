@@ -61,7 +61,7 @@ namespace Weyvelength {
 			return true;
 		}
 
-		return juice_send(link->agent, reinterpret_cast<const char*>(msg.data()), msg.size()) == JUICE_ERR_SUCCESS;
+		return juice_send(link->agent, (const char*)msg.data(), msg.size()) == JUICE_ERR_SUCCESS;
 	}
 
 	bool Client::NextP2P(uint32_t& from, Proto::P2PMessage& out)
@@ -134,7 +134,7 @@ namespace Weyvelength {
 	void Client::FlushLink(PeerLink& link)
 	{
 		for (const std::vector<std::byte>& data : link.outbox) {
-			juice_send(link.agent, reinterpret_cast<const char*>(data.data()), data.size());
+			juice_send(link.agent, (const char*)data.data(), data.size());
 		}
 		link.outbox.clear();
 	}
@@ -223,7 +223,7 @@ namespace Weyvelength {
 			SendServer(Proto::P2PSignal{ ev.peer, Proto::P2PSignalKind::GatheringDone, {} });
 			break;
 		case JuiceEvent::Kind::Recv: {
-			auto* bytes = reinterpret_cast<const std::byte*>(ev.payload.data());
+			auto* bytes = (const std::byte*)ev.payload.data();
 			_p2p_inbox.emplace(ev.peer, Proto::P2PMessage{ bytes, bytes + ev.payload.size() });
 			break;
 		}

@@ -96,7 +96,7 @@ static void SendP2PCommand(Weyvelength::Client& client, const std::string& args)
 	}
 
 	std::string text = args.substr(space + 1);
-	auto* bytes = reinterpret_cast<const std::byte*>(text.data());
+	auto* bytes = (const std::byte*)text.data();
 	if (!client.SendP2P(id, { bytes, bytes + text.size() }))
 		std::cout << "p2p send to client " << id << " failed\n";
 }
@@ -213,7 +213,7 @@ static int RunChat(Weyvelength::Client& client, const std::string& code, const s
 		uint32_t from = 0;
 		Proto::P2PMessage data;
 		while (client.NextP2P(from, data)) {
-			std::string text{ reinterpret_cast<const char*>(data.data()), data.size() };
+			std::string text{ (const char*)data.data(), data.size() };
 			std::cout << "[p2p client " << from << "] " << text << "\n";
 		}
 
