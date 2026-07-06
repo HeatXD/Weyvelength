@@ -39,5 +39,6 @@ namespace Weyvelength {
 		std::vector<JuiceEvent> events; // juice callbacks push, PollPeers drains
 		std::vector<JuiceEvent> scratch; // the drained batch; reused so capacity sticks
 		std::map<uint32_t, PeerLink> links;
+		std::map<uint32_t, uint32_t> attempts; // per-peer ICE tries; outlives links to cap retries
 	};
 }

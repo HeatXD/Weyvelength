@@ -8,6 +8,8 @@
 // signaled through the server as P2PSignal frames.
 namespace Weyvelength {
 
+	constexpr uint32_t max_connection_attempts = 3; // ICE tries per peer before we give up
+
 	// Juice callbacks run on juice's threads; they only queue, Poll does the rest.
 	static void PushJuiceEvent(void* user_ptr, JuiceEvent ev)
 	{
@@ -92,6 +94,9 @@ namespace Weyvelength {
 
 	PeerLink* Client::CreateLink(uint32_t id)
 	{
+		if (_mesh->attempts[id] >= max_connection_attempts)
+			return nullptr; // gave up on this peer until it reconnects or the room resets
+
 		PeerLink link;
 		link.ctx = std::make_unique<JuiceCallbackContext>();
 		link.ctx->mesh = _mesh.get();
@@ -120,6 +125,7 @@ namespace Weyvelength {
 		if (!link.agent)
 			return nullptr;
 
+		_mesh->attempts[id]++; // count only agents that actually started an ICE round
 		return &_mesh->links.emplace(id, std::move(link)).first->second;
 	}
 
@@ -158,6 +164,7 @@ namespace Weyvelength {
 			juice_destroy(link.agent);
 		}
 		_mesh->links.clear();
+		_mesh->attempts.clear();
 	}
 
 	void Client::HandleP2PSignal(const Proto::P2PSignal& sig)
@@ -239,13 +246,14 @@ namespace Weyvelength {
 		case JUICE_STATE_CONNECTED:
 		case JUICE_STATE_COMPLETED:
 			link.connected = true;
+			_mesh->attempts.erase(ev.peer); // success clears the budget; a later drop retries fresh
 			FlushLink(link);
 			break;
 		case JUICE_STATE_DISCONNECTED:
 			link.connected = false; // may still recover; sends queue meanwhile
 			break;
 		case JUICE_STATE_FAILED:
-			DestroyLink(ev.peer); // the next SendP2P starts over
+			DestroyLink(ev.peer); // the next SendP2P retries, up to max_connection_attempts
 			break;
 		default:
 			break;
