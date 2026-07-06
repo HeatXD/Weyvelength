@@ -145,7 +145,7 @@ static int RunChat(Weyvelength::Client& client, const std::string& code, const s
 			if (auto* room = std::get_if<Proto::AssignRoomId>(&msg)) {
 				std::cout << "In room " << room->id << " (join it: test chat " << room->id << ")\n";
 				std::cout << "Commands: /who, /set KEY VALUE, /del KEY, /setme KEY VALUE, /delme KEY\n";
-				std::cout << "          /open, /close, /pass [PASSWORD], /kick ID, /host ID, /leave\n";
+				std::cout << "          /open, /close, /pass [PASSWORD], /kick ID, /ban ID, /host ID, /leave\n";
 			}
 			else if (auto* error = std::get_if<Proto::RoomError>(&msg)) {
 				PrintRoomError(*error);
@@ -180,8 +180,12 @@ static int RunChat(Weyvelength::Client& client, const std::string& code, const s
 				else
 					std::cout << "* client " << member->id << " data: " << member->key << " = " << member->value << "\n";
 			}
-			else if (std::get_if<Proto::Kicked>(&msg)) {
+			else if (std::get_if<Proto::KickedByHost>(&msg)) {
 				std::cout << "Kicked from the room\n";
+				return 0;
+			}
+			else if (std::get_if<Proto::BannedByHost>(&msg)) {
+				std::cout << "Banned from the room\n";
 				return 0;
 			}
 			else if (auto* access = std::get_if<Proto::RoomAccessChanged>(&msg)) {
@@ -216,6 +220,8 @@ static int RunChat(Weyvelength::Client& client, const std::string& code, const s
 				client.SetRoomPassword(line.substr(6));
 			else if (line.rfind("/kick ", 0) == 0)
 				client.KickMember(ParseId(line.substr(6)));
+			else if (line.rfind("/ban ", 0) == 0)
+				client.BanMember(ParseId(line.substr(5)));
 			else if (line.rfind("/host ", 0) == 0)
 				client.TransferHost(ParseId(line.substr(6)));
 			else
