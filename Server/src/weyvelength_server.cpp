@@ -330,10 +330,8 @@ namespace Weyvelength {
 		return "unknown";
 	}
 
-	// ICE signaling between two room members; the server relays blindly and
-	// never looks inside the sdp payload. Bad targets are dropped, not
-	// errored: a trickled candidate can race the target's departure, and the
-	// sender never sees these frames as actions to be answered anyway.
+	// Relays ICE signaling between room members without reading the sdp. Bad
+	// targets are dropped, not errored: a candidate can race the target's departure.
 	void Server::HandleP2PSignal(const std::shared_ptr<Connection>& conn, const Proto::P2PSignal& msg)
 	{
 		auto it = _rooms.find(conn->room);
@@ -348,7 +346,7 @@ namespace Weyvelength {
 		}
 
 		if (msg.kind == Proto::P2PSignalKind::Description)
-			spdlog::info("Client {} sent p2p description to client {} (room {})", conn->id, msg.id, it->second.id); // one per handshake side
+			spdlog::info("Client {} sent p2p description to client {} (room {})", conn->id, msg.id, it->second.id);
 
 		spdlog::debug("Client {} -> {} p2p {}: {}", conn->id, msg.id, P2PSignalKindName(msg.kind), msg.payload);
 		SendTo(msg.id, Proto::P2PSignal{ conn->id, msg.kind, msg.payload }); // forwarded carrying the sender's id

@@ -85,8 +85,7 @@ static void PrintRoomInfo(const Weyvelength::Client& client)
 	}
 }
 
-// "/p2p 3 hello"; the first direct message to a peer builds its mesh link.
-// The p2p channel carries opaque bytes, so this app's encoding is plain text.
+// "/p2p 3 hello"; sends the text bytes to one peer over the mesh.
 static void SendP2PCommand(Weyvelength::Client& client, const std::string& args)
 {
 	size_t space = args.find(' ');

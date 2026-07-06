@@ -3,13 +3,11 @@
 
 #include <algorithm>
 
-// The p2p half of the client: a mesh of libjuice links that builds itself
-// lazily. The first SendP2P to a peer starts ICE, signaled through the server
-// as P2PSignal frames; the peer answers the same way when the signals arrive.
+// The p2p half of the client: a lazily built mesh of libjuice links,
+// signaled through the server as P2PSignal frames.
 namespace Weyvelength {
 
-	// The four juice callbacks run on juice's own threads; they only queue
-	// events, everything real happens on the poll thread.
+	// Juice callbacks run on juice's threads; they only queue, Poll does the rest.
 	static void PushJuiceEvent(void* user_ptr, JuiceEvent ev)
 	{
 		auto* ctx = static_cast<JuiceCallbackContext*>(user_ptr);
@@ -122,8 +120,7 @@ namespace Weyvelength {
 		return &_mesh->links.emplace(id, std::move(link)).first->second;
 	}
 
-	// Announces a fresh agent to its peer: the ufrag/pwd description first,
-	// then gathering trickles candidates through OnJuiceCandidate.
+	// Sends the local description; gathering then trickles the candidates.
 	bool Client::ShareLink(PeerLink& link, uint32_t id)
 	{
 		char sdp[JUICE_MAX_SDP_STRING_LEN];
@@ -134,7 +131,6 @@ namespace Weyvelength {
 		return juice_gather_candidates(link.agent) == JUICE_ERR_SUCCESS;
 	}
 
-	// Sends everything that queued up while the link was still connecting.
 	void Client::FlushLink(PeerLink& link)
 	{
 		for (const std::vector<std::byte>& data : link.outbox) {
@@ -149,8 +145,8 @@ namespace Weyvelength {
 		if (it == _mesh->links.end())
 			return;
 
-		juice_destroy(it->second.agent); // returns once the agent's callbacks have
-		_mesh->links.erase(it); // so the callback context is safe to free here
+		juice_destroy(it->second.agent); // joins the callbacks, so the ctx is safe to free
+		_mesh->links.erase(it);
 	}
 
 	void Client::DestroyAllLinks()
@@ -183,19 +179,15 @@ namespace Weyvelength {
 	void Client::HandleP2PDescription(PeerLink* link, const Proto::P2PSignal& sig)
 	{
 		if (!link) {
-			// a peer's first message reached out to us; answer with our own
-			// agent, remote description first so it takes the controlled role
-			link = CreateLink(sig.id);
+			link = CreateLink(sig.id); // a peer reached out; answer
 			if (!link)
 				return;
-			juice_set_remote_description(link->agent, sig.payload.c_str());
+			juice_set_remote_description(link->agent, sig.payload.c_str()); // remote first = controlled role
 			link->remote_set = true;
 			ShareLink(*link, sig.id);
 		}
 		else if (!link->remote_set) {
-			// glare: both ends opened first simultaneously, so both agents are
-			// controlling and the ICE role-conflict tie-breaker settles it
-			juice_set_remote_description(link->agent, sig.payload.c_str());
+			juice_set_remote_description(link->agent, sig.payload.c_str()); // glare; the ICE tie-breaker settles roles
 			link->remote_set = true;
 		}
 	}

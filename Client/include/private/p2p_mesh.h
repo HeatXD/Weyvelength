@@ -11,9 +11,7 @@
 
 #include <juice/juice.h>
 
-// Internal to the client: the state behind the lazily built p2p mesh. Lives
-// in the private include folder, not the public include/, so juice types
-// stay out of the API.
+// Client-internal state behind the p2p mesh; keeps juice types out of the API.
 namespace Weyvelength {
 	struct JuiceEvent { // one callback crossing from juice's threads into Poll
 		enum class Kind { State, Candidate, GatheringDone, Recv };
