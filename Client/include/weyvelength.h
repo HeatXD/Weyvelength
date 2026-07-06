@@ -32,7 +32,8 @@ namespace Weyvelength {
 		bool CreateRoom(); // server replies AssignRoomId or RoomError
 		bool JoinRoom(const std::string& id, const std::string& password = {}); // server replies AssignRoomId or RoomError
 		bool LeaveRoom(); // server replies PeerLeft carrying our own id, or RoomError
-		bool KickMember(uint32_t id); // host-only; the target gets Kicked, the room gets PeerLeft
+		bool KickMember(uint32_t id); // host-only; the target gets KickedByHost, the room gets PeerLeft
+		bool BanMember(uint32_t id); // host-only; the target gets BannedByHost and is barred from rejoining
 		bool TransferHost(uint32_t id); // host-only; server replies HostChanged to the room
 		bool SetRoomJoinable(bool open); // host-only; server replies RoomAccessChanged to the room
 		bool SetRoomPassword(const std::string& password); // host-only; empty clears it

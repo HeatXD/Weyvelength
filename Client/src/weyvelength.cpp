@@ -90,6 +90,11 @@ namespace Weyvelength {
 		return SendServer(Proto::KickMember{ id });
 	}
 
+	bool Client::BanMember(uint32_t id)
+	{
+		return SendServer(Proto::BanMember{ id });
+	}
+
 	bool Client::TransferHost(uint32_t id)
 	{
 		return SendServer(Proto::TransferHost{ id });
@@ -312,8 +317,11 @@ namespace Weyvelength {
 				_member_data[member->id][member->key] = member->value;
 			}
 		}
-		else if (std::get_if<Proto::Kicked>(&msg)) {
+		else if (std::get_if<Proto::KickedByHost>(&msg)) {
 			ClearRoomState(); // removed by the host; same cleanup as leaving
+		}
+		else if (std::get_if<Proto::BannedByHost>(&msg)) {
+			ClearRoomState(); // removed and barred; same cleanup as a kick
 		}
 		else if (auto* access = std::get_if<Proto::RoomAccessChanged>(&msg)) {
 			_room_open = access->open;
