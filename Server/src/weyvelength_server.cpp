@@ -336,19 +336,18 @@ namespace Weyvelength {
 	{
 		auto it = _rooms.find(conn->room);
 		if (it == _rooms.end()) {
-			spdlog::debug("Client {} p2p {} dropped: not in a room", conn->id, P2PSignalKindName(msg.kind));
+			spdlog::debug("c{} p2p {} dropped: no room", conn->id, P2PSignalKindName(msg.kind));
 			return;
 		}
 
 		if (msg.id == conn->id || std::ranges::find(it->second.members, msg.id) == it->second.members.end()) {
-			spdlog::debug("Client {} p2p {} dropped: client {} is not another member of room {}", conn->id, P2PSignalKindName(msg.kind), msg.id, it->second.id);
+			spdlog::debug("c{} p2p {} dropped: {} not a room-{} member", conn->id, P2PSignalKindName(msg.kind), msg.id, it->second.id);
 			return;
 		}
 
-		if (msg.kind == Proto::P2PSignalKind::Description)
-			spdlog::info("Client {} sent p2p description to client {} (room {})", conn->id, msg.id, it->second.id);
-
-		spdlog::debug("Client {} -> {} p2p {}: {}", conn->id, msg.id, P2PSignalKindName(msg.kind), msg.payload);
+		// description at info, the chattier candidate/gather trickle at debug
+		auto level = msg.kind == Proto::P2PSignalKind::Description ? spdlog::level::info : spdlog::level::debug;
+		spdlog::log(level, "c{} -> c{} p2p {}: {}", conn->id, msg.id, P2PSignalKindName(msg.kind), msg.payload);
 		SendTo(msg.id, Proto::P2PSignal{ conn->id, msg.kind, msg.payload }); // forwarded carrying the sender's id
 	}
 
