@@ -18,7 +18,7 @@ namespace Weyvelength {
 		Kind kind{};
 		uint32_t peer = 0;
 		juice_state_t state = JUICE_STATE_DISCONNECTED; // Kind::State only
-		std::string payload; // candidate sdp, or the datagram bytes for Kind::Recv
+		std::vector<std::byte> payload; // candidate sdp or Kind::Recv datagram
 	};
 
 	struct JuiceCallbackContext { // one agent's user_ptr; freed after juice_destroy

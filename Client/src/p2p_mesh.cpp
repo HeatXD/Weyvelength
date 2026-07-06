@@ -2,6 +2,7 @@
 #include "p2p_mesh.h"
 
 #include <algorithm>
+#include <cstring>
 
 // The p2p half of the client: a lazily built mesh of libjuice links,
 // signaled through the server as P2PSignal frames.
@@ -24,7 +25,8 @@ namespace Weyvelength {
 
 	static void OnJuiceCandidate(juice_agent_t*, const char* sdp, void* user_ptr)
 	{
-		PushJuiceEvent(user_ptr, { .kind = JuiceEvent::Kind::Candidate, .payload = sdp });
+		auto* bytes = (const std::byte*)sdp;
+		PushJuiceEvent(user_ptr, { .kind = JuiceEvent::Kind::Candidate, .payload = { bytes, bytes + std::strlen(sdp) } });
 	}
 
 	static void OnJuiceGatheringDone(juice_agent_t*, void* user_ptr)
@@ -34,7 +36,8 @@ namespace Weyvelength {
 
 	static void OnJuiceRecv(juice_agent_t*, const char* data, size_t size, void* user_ptr)
 	{
-		PushJuiceEvent(user_ptr, { .kind = JuiceEvent::Kind::Recv, .payload = { data, size } });
+		auto* bytes = (const std::byte*)data;
+		PushJuiceEvent(user_ptr, { .kind = JuiceEvent::Kind::Recv, .payload = { bytes, bytes + size } });
 	}
 
 	bool Client::SendP2P(uint32_t id, const Proto::P2PMessage& msg)
@@ -219,16 +222,14 @@ namespace Weyvelength {
 			HandleLinkState(*link, ev);
 			break;
 		case JuiceEvent::Kind::Candidate:
-			SendServer(Proto::P2PSignal{ ev.peer, Proto::P2PSignalKind::Candidate, std::move(ev.payload) });
+			SendServer(Proto::P2PSignal{ ev.peer, Proto::P2PSignalKind::Candidate, std::string{ (const char*)ev.payload.data(), ev.payload.size() } });
 			break;
 		case JuiceEvent::Kind::GatheringDone:
 			SendServer(Proto::P2PSignal{ ev.peer, Proto::P2PSignalKind::GatheringDone, {} });
 			break;
-		case JuiceEvent::Kind::Recv: {
-			auto* bytes = (const std::byte*)ev.payload.data();
-			_p2p_inbox.emplace(ev.peer, Proto::P2PMessage{ bytes, bytes + ev.payload.size() });
+		case JuiceEvent::Kind::Recv:
+			_p2p_inbox.emplace(ev.peer, std::move(ev.payload));
 			break;
-		}
 		}
 	}
 
