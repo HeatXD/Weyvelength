@@ -134,6 +134,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\weyvelength.cpp" />
+    <ClCompile Include="src\p2p_mesh.cpp" />
     <ClCompile Include="src\test.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -142,6 +143,7 @@
   <ItemGroup>
     <ClInclude Include="include\weyvelength.h" />
     <ClInclude Include="include\weyvelength_api.h" />
+    <ClInclude Include="include\private\p2p_mesh.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

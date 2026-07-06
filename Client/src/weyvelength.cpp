@@ -12,6 +12,7 @@
 #include <thirdparty\zpp_bits\zpp_bits.h>
 
 #include "framing.h"
+#include "private/p2p_mesh.h"
 
 namespace Weyvelength {
 	struct ClientAsioImpl {
@@ -21,8 +22,12 @@ namespace Weyvelength {
 		std::vector<std::byte> tx;   // framed bytes queued to send
 	};
 
-	Client::Client() : _asio(std::make_unique<ClientAsioImpl>()) {}
-	Client::~Client() = default;
+	Client::Client() : _asio(std::make_unique<ClientAsioImpl>()), _mesh(std::make_unique<P2PMesh>()) {}
+
+	Client::~Client()
+	{
+		DestroyAllLinks();
+	}
 
 	bool Client::Connect(ClientConfig& config)
 	{
@@ -42,15 +47,14 @@ namespace Weyvelength {
 
 	bool Client::Poll()
 	{
-		return PollServer();
-	}
-
-	bool Client::PollServer()
-	{
 		if (!_asio->socket.is_open())
 			return false;
 
-		return DrainServer() && CarveServer() && FlushServer();
+		if (!DrainServer() || !CarveServer())
+			return false;
+
+		PollPeers(); // may queue signal frames; the flush below sends them
+		return FlushServer();
 	}
 
 	bool Client::Next(Proto::ServerMessage& out)
@@ -240,6 +244,12 @@ namespace Weyvelength {
 			if (auto* assign = std::get_if<Proto::AssignClientId>(&msg)) {
 				_id = assign->id;   // transport metadata; not surfaced via Next()
 			}
+			else if (auto* ice = std::get_if<Proto::IceServers>(&msg)) {
+				_ice = std::move(*ice);   // transport metadata; not surfaced via Next()
+			}
+			else if (auto* signal = std::get_if<Proto::P2PSignal>(&msg)) {
+				HandleP2PSignal(*signal);   // ICE plumbing; not surfaced via Next()
+			}
 			else {
 				CacheRoomState(msg); // cached for the accessors, but still surfaced via Next()
 				_inbox.push(std::move(msg));
@@ -293,6 +303,7 @@ namespace Weyvelength {
 			else {
 				std::erase(_members, left->id);
 				_member_data.erase(left->id);
+				DestroyLink(left->id); // no member, no mesh link
 			}
 		}
 		else if (auto* host = std::get_if<Proto::HostChanged>(&msg)) {
@@ -331,6 +342,7 @@ namespace Weyvelength {
 
 	void Client::ClearRoomState()
 	{
+		DestroyAllLinks(); // the mesh only spans the current room
 		_room.clear();
 		_host = 0;
 		_room_open = true;
