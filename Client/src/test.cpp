@@ -1,4 +1,5 @@
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <mutex>
 #include <queue>
@@ -52,9 +53,16 @@ static void PrintRoomError(const Weyvelength::Proto::RoomError& error)
 	std::cout << "\n";
 }
 
+// "/kick 3" style numeric argument; 0 (never a valid id) on garbage.
+static uint32_t ParseId(const std::string& arg)
+{
+	return (uint32_t)std::strtoul(arg.c_str(), nullptr, 10);
+}
+
 static void PrintRoomInfo(const Weyvelength::Client& client)
 {
 	std::cout << "Room " << client.RoomId() << ", host " << client.Host() << (client.IsHost() ? " (you)" : "") << "\n";
+	std::cout << (client.RoomJoinable() ? "Open to join" : "Closed") << (client.RoomPassworded() ? ", password required" : "") << "\n";
 
 	std::cout << "Members:";
 	for (uint32_t id : client.Members()) {
@@ -120,14 +128,14 @@ static int RunPing(Weyvelength::Client& client)
 }
 
 // Create a room (empty code) or join one, then send typed lines to everyone in it.
-static int RunChat(Weyvelength::Client& client, const std::string& code)
+static int RunChat(Weyvelength::Client& client, const std::string& code, const std::string& password)
 {
 	using namespace Weyvelength;
 
 	if (code.empty())
 		client.CreateRoom();
 	else
-		client.JoinRoom(code);
+		client.JoinRoom(code, password);
 
 	StartInputThread();
 
@@ -136,7 +144,8 @@ static int RunChat(Weyvelength::Client& client, const std::string& code)
 		while (client.Next(msg)) {
 			if (auto* room = std::get_if<Proto::AssignRoomId>(&msg)) {
 				std::cout << "In room " << room->id << " (join it: test chat " << room->id << ")\n";
-				std::cout << "Commands: /who, /set KEY VALUE, /del KEY, /setme KEY VALUE, /delme KEY, /leave\n";
+				std::cout << "Commands: /who, /set KEY VALUE, /del KEY, /setme KEY VALUE, /delme KEY\n";
+				std::cout << "          /open, /close, /pass [PASSWORD], /kick ID, /ban ID, /host ID, /leave\n";
 			}
 			else if (auto* error = std::get_if<Proto::RoomError>(&msg)) {
 				PrintRoomError(*error);
@@ -171,6 +180,17 @@ static int RunChat(Weyvelength::Client& client, const std::string& code)
 				else
 					std::cout << "* client " << member->id << " data: " << member->key << " = " << member->value << "\n";
 			}
+			else if (std::get_if<Proto::KickedByHost>(&msg)) {
+				std::cout << "Kicked from the room\n";
+				return 0;
+			}
+			else if (std::get_if<Proto::BannedByHost>(&msg)) {
+				std::cout << "Banned from the room\n";
+				return 0;
+			}
+			else if (auto* access = std::get_if<Proto::RoomAccessChanged>(&msg)) {
+				std::cout << "* room is now " << (access->open ? "open" : "closed") << (access->passworded ? " (password required)" : "") << "\n";
+			}
 		}
 
 		// Lines typed before the room is joined stay queued until it is.
@@ -190,6 +210,20 @@ static int RunChat(Weyvelength::Client& client, const std::string& code)
 				SendSetCommand(client, line.substr(5), false);
 			else if (line.rfind("/del ", 0) == 0)
 				client.DeleteRoomData(line.substr(5));
+			else if (line == "/open")
+				client.SetRoomJoinable(true);
+			else if (line == "/close")
+				client.SetRoomJoinable(false);
+			else if (line == "/pass")
+				client.SetRoomPassword({});
+			else if (line.rfind("/pass ", 0) == 0)
+				client.SetRoomPassword(line.substr(6));
+			else if (line.rfind("/kick ", 0) == 0)
+				client.KickMember(ParseId(line.substr(6)));
+			else if (line.rfind("/ban ", 0) == 0)
+				client.BanMember(ParseId(line.substr(5)));
+			else if (line.rfind("/host ", 0) == 0)
+				client.TransferHost(ParseId(line.substr(6)));
 			else
 				client.SendChat(line);
 		}
@@ -211,7 +245,7 @@ int main(int argc, char* argv[])
 	if (mode != "ping" && mode != "chat") {
 		std::cout << "usage: test ping        heartbeat/rtt demo\n";
 		std::cout << "       test chat        create a room and chat in it\n";
-		std::cout << "       test chat CODE   join a room and chat in it\n";
+		std::cout << "       test chat CODE [PASSWORD]   join a room and chat in it\n";
 		return 1;
 	}
 
@@ -227,5 +261,5 @@ int main(int argc, char* argv[])
 
 	if (mode == "ping")
 		return RunPing(client);
-	return RunChat(client, argc > 2 ? argv[2] : "");
+	return RunChat(client, argc > 2 ? argv[2] : "", argc > 3 ? argv[3] : "");
 }

@@ -13,12 +13,21 @@ namespace Weyvelength::Proto {
 		AlreadyInRoom,
 		NoSuchRoom,
 		NotInRoom,
-		NotHost, // room data writes are host-only
+		NotHost, // host-only action attempted by a non-host
 		BadRoomData, // key/value over the size limits, or too many keys
+		NoSuchMember, // target id is not another member of the room
+		RoomClosed, // the room is not joinable right now
+		BadPassword, // wrong password on join, or an over-long one on set
+		Banned, // the host has barred this client from the room
 	};
 
 	struct CreateRoom {}; // client -> server: create a room and join it
-	struct JoinRoom { std::string id; }; // client -> server: join an existing room by id
+
+	struct JoinRoom { // client -> server: join an existing room by id
+		std::string id;
+		std::string password; // must match the room's password if one is set
+	};
+
 	struct LeaveRoom {}; // client -> server: leave the current room
 
 	struct RoomError { // server -> client: a room request failed
@@ -56,11 +65,26 @@ namespace Weyvelength::Proto {
 		std::string value;
 	};
 
+	struct KickMember { uint32_t id = 0; }; // client -> server: host-only, remove a member from the room
+	struct BanMember { uint32_t id = 0; }; // client -> server: host-only, remove a member and bar them from rejoining
+	struct TransferHost { uint32_t id = 0; }; // client -> server: host-only, hand host status to another member
+	struct SetRoomJoinable { bool open = true; }; // client -> server: host-only, open or close the room for joining
+	struct SetRoomPassword { std::string password; }; // client -> server: host-only; empty clears it
+
+	struct KickedByHost {}; // server -> client: the host removed you from the room
+	struct BannedByHost {}; // server -> client: the host removed you and barred you from rejoining
+
+	struct RoomAccessChanged { // server -> client: the room's joinability changed; the password itself never leaves the server
+		bool open = true;
+		bool passworded = false;
+	};
+
 	// All traffic on the server connection, both directions. Only append new
 	// messages: zpp_bits encodes the variant index, so inserting in the middle
 	// breaks peers built against the old order.
 	using ServerMessage = std::variant<Heartbeat, AssignClientId, AssignRoomId, CreateRoom, JoinRoom, RoomError, RoomChat,
-		LeaveRoom, PeerJoined, PeerLeft, HostChanged, SetRoomData, RoomDataChanged, SetMemberData, MemberDataChanged>;
+		LeaveRoom, PeerJoined, PeerLeft, HostChanged, SetRoomData, RoomDataChanged, SetMemberData, MemberDataChanged,
+		KickMember, TransferHost, SetRoomJoinable, SetRoomPassword, KickedByHost, RoomAccessChanged, BanMember, BannedByHost>;
 
 	struct tmp {};
 	using P2PMessage = std::variant<tmp>;   // peer-to-peer channel, unused for now
@@ -73,4 +97,5 @@ namespace Weyvelength::Proto {
 	constexpr uint32_t max_room_data_value = 512;
 	constexpr uint32_t max_room_data_keys = 64;
 	constexpr uint32_t max_member_data_keys = 16;
+	constexpr uint32_t max_room_password = 64;
 }

@@ -43,10 +43,13 @@ namespace Weyvelength {
 
 	struct Room {
 		std::string id;
-		uint32_t host = 0; // the creator, until they leave
+		uint32_t host = 0; // the creator, until they leave or hand it over
 		std::vector<uint32_t> members;
 		std::map<std::string, std::string> data; // metadata, mirrored to every member as RoomDataChanged events
 		std::map<uint32_t, std::map<std::string, std::string>> member_data; // per-member metadata, dropped when the member leaves
+		bool open = true; // joinable right now?
+		std::string password; // empty = none; checked on join, never sent to clients
+		std::vector<uint32_t> banned_members; // ids barred from joining; checked on join
 	};
 
 	struct Server {
@@ -65,7 +68,13 @@ namespace Weyvelength {
 		void HandleRoomChat(const std::shared_ptr<Connection>& conn, const Proto::RoomChat& msg);
 		void HandleSetRoomData(const std::shared_ptr<Connection>& conn, const Proto::SetRoomData& msg);
 		void HandleSetMemberData(const std::shared_ptr<Connection>& conn, const Proto::SetMemberData& msg);
+		void HandleKickMember(const std::shared_ptr<Connection>& conn, const Proto::KickMember& msg);
+		void HandleBanMember(const std::shared_ptr<Connection>& conn, const Proto::BanMember& msg);
+		void HandleTransferHost(const std::shared_ptr<Connection>& conn, const Proto::TransferHost& msg);
+		void HandleSetRoomJoinable(const std::shared_ptr<Connection>& conn, const Proto::SetRoomJoinable& msg);
+		void HandleSetRoomPassword(const std::shared_ptr<Connection>& conn, const Proto::SetRoomPassword& msg);
 		void LeaveRoom(const std::shared_ptr<Connection>& conn);
+		Room* HostRoom(const std::shared_ptr<Connection>& conn); // the sender's room if they host it, else null after sending the error
 
 		asio::awaitable<void> AcceptLoop();
 		asio::awaitable<void> Session(std::shared_ptr<Connection> conn);

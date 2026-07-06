@@ -30,8 +30,13 @@ namespace Weyvelength {
 		bool SendServer(const Proto::ServerMessage& msg);
 
 		bool CreateRoom(); // server replies AssignRoomId or RoomError
-		bool JoinRoom(const std::string& id); // server replies AssignRoomId or RoomError
+		bool JoinRoom(const std::string& id, const std::string& password = {}); // server replies AssignRoomId or RoomError
 		bool LeaveRoom(); // server replies PeerLeft carrying our own id, or RoomError
+		bool KickMember(uint32_t id); // host-only; the target gets KickedByHost, the room gets PeerLeft
+		bool BanMember(uint32_t id); // host-only; the target gets BannedByHost and is barred from rejoining
+		bool TransferHost(uint32_t id); // host-only; server replies HostChanged to the room
+		bool SetRoomJoinable(bool open); // host-only; server replies RoomAccessChanged to the room
+		bool SetRoomPassword(const std::string& password); // host-only; empty clears it
 		bool SendChat(const std::string& text); // broadcast to everyone in the current room
 		bool SetRoomData(const std::string& key, const std::string& value); // host-only; server replies RoomDataChanged or RoomError
 		bool DeleteRoomData(const std::string& key); // host-only; sugar for an empty-value SetRoomData
@@ -42,6 +47,8 @@ namespace Weyvelength {
 		const std::string& RoomId() const; // empty until a room has been joined
 		uint32_t Host() const; // 0 until a room has been joined
 		bool IsHost() const;
+		bool RoomJoinable() const; // can others join right now?
+		bool RoomPassworded() const; // the flag only; the password itself never reaches clients
 		const std::vector<uint32_t>& Members() const; // everyone in the room, ourselves included
 		const std::map<std::string, std::string>& RoomData() const;
 		const std::string* RoomData(const std::string& key) const; // null if the key is not set
@@ -62,6 +69,8 @@ namespace Weyvelength {
 		uint32_t _id = 0;
 		std::string _room;
 		uint32_t _host = 0;
+		bool _room_open = true;
+		bool _room_passworded = false;
 		std::vector<uint32_t> _members;
 		std::map<std::string, std::string> _data;
 		std::map<uint32_t, std::map<std::string, std::string>> _member_data;
