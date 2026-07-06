@@ -397,7 +397,7 @@ namespace Weyvelength {
 		SendTo(msg.id, Proto::Kicked{});
 		LeaveRoom(target->second); // removal + PeerLeft broadcast, same as any other exit
 
-		std::cout << "Client " << msg.id << " kicked from room " << room->id << " by client " << conn->id << "\n";
+		spdlog::info("Client {} kicked from room {} by client {}", msg.id, room->id, conn->id);
 	}
 
 	void Server::HandleTransferHost(const std::shared_ptr<Connection>& conn, const Proto::TransferHost& msg)
@@ -417,7 +417,7 @@ namespace Weyvelength {
 		room->host = msg.id;
 		SendToMany(room->members, Proto::HostChanged{ room->host });
 
-		std::cout << "Client " << room->host << " now hosts room " << room->id << " (transferred)\n";
+		spdlog::info("Client {} now hosts room {} (transferred)", room->host, room->id);
 	}
 
 	void Server::HandleSetRoomJoinable(const std::shared_ptr<Connection>& conn, const Proto::SetRoomJoinable& msg)
@@ -432,7 +432,7 @@ namespace Weyvelength {
 		room->open = msg.open;
 		SendToMany(room->members, Proto::RoomAccessChanged{ room->open, !room->password.empty() });
 
-		std::cout << "Room " << room->id << " is now " << (room->open ? "open" : "closed") << "\n";
+		spdlog::info("Room {} is now {}", room->id, room->open ? "open" : "closed");
 	}
 
 	void Server::HandleSetRoomPassword(const std::shared_ptr<Connection>& conn, const Proto::SetRoomPassword& msg)
