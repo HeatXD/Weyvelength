@@ -304,6 +304,7 @@ namespace Weyvelength {
 				std::erase(_members, left->id);
 				_member_data.erase(left->id);
 				DestroyLink(left->id); // no member, no mesh link
+				_mesh->attempts.erase(left->id); // and no grudge if they rejoin
 			}
 		}
 		else if (auto* host = std::get_if<Proto::HostChanged>(&msg)) {
