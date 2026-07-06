@@ -1,8 +1,10 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <variant>
+#include <vector>
 
 namespace Weyvelength::Proto {
 	struct Heartbeat { uint64_t timestamp; };   // server <-> client heartbeat
@@ -79,15 +81,45 @@ namespace Weyvelength::Proto {
 		bool passworded = false;
 	};
 
+	enum class P2PSignalKind : uint8_t {
+		Description, // the ufrag/pwd sdp block that opens a link
+		Candidate, // one trickled ICE candidate
+		GatheringDone, // no more candidates coming
+	};
+
+	struct P2PSignal { // ICE signaling relayed through the server; client -> server: id is the target, server -> client: id is the sender
+		uint32_t id = 0;
+		P2PSignalKind kind{};
+		std::string payload; // sdp text; empty for GatheringDone
+	};
+
+	struct TurnServer { // one relay with its credentials
+		std::string host;
+		uint16_t port = 0;
+		std::string username;
+		std::string password;
+	};
+
+	struct IceServers { // server -> client: p2p infrastructure, sent once after connect
+		std::string stun_host; // empty = no stun, host candidates only
+		uint16_t stun_port = 0;
+		std::vector<TurnServer> turn; // relays for when direct paths fail
+	};
+
 	// All traffic on the server connection, both directions. Only append new
 	// messages: zpp_bits encodes the variant index, so inserting in the middle
 	// breaks peers built against the old order.
 	using ServerMessage = std::variant<Heartbeat, AssignClientId, AssignRoomId, CreateRoom, JoinRoom, RoomError, RoomChat,
 		LeaveRoom, PeerJoined, PeerLeft, HostChanged, SetRoomData, RoomDataChanged, SetMemberData, MemberDataChanged,
-		KickMember, TransferHost, SetRoomJoinable, SetRoomPassword, KickedByHost, RoomAccessChanged, BanMember, BannedByHost>;
+		KickMember, TransferHost, SetRoomJoinable, SetRoomPassword, KickedByHost, RoomAccessChanged, BanMember, BannedByHost,
+		P2PSignal, IceServers>;
 
-	struct tmp {};
-	using P2PMessage = std::variant<tmp>;   // peer-to-peer channel, unused for now
+	// A direct-link payload is opaque bytes: the library moves datagrams, the
+	// app defines its own encoding. One datagram per message, no framing — a
+	// datagram delimits itself, so the bytes go over the wire as-is.
+	using P2PMessage = std::vector<std::byte>;
+
+	constexpr uint32_t max_p2p_message_size = 1024; // datagram cap, independent of the tcp frame cap below
 
 	constexpr uint32_t max_message_size = 1024;
 
