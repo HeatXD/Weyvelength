@@ -91,6 +91,7 @@ namespace Weyvelength {
 		asio::co_spawn(conn->socket.get_executor(), WriteLoop(conn), asio::detached);
 
 		SendTo(conn->id, Proto::AssignClientId{ conn->id });
+		SendTo(conn->id, _config.ice); // p2p infrastructure; empty fields = none
 
 		try {
 			co_await ReadLoop(conn);
@@ -174,6 +175,9 @@ namespace Weyvelength {
 		}
 		else if (auto* chat = std::get_if<Proto::RoomChat>(&msg)) {
 			HandleRoomChat(conn, *chat);
+		}
+		else if (auto* signal = std::get_if<Proto::P2PSignal>(&msg)) {
+			HandleP2PSignal(conn, *signal);
 		}
 		else if (auto* set = std::get_if<Proto::SetRoomData>(&msg)) {
 			HandleSetRoomData(conn, *set);
@@ -314,6 +318,40 @@ namespace Weyvelength {
 
 		// sender included: everyone in the room sees the same stream
 		SendToMany(it->second.members, Proto::RoomChat{ conn->id, msg.text });
+	}
+
+	static const char* P2PSignalKindName(Proto::P2PSignalKind kind)
+	{
+		switch (kind) {
+		case Proto::P2PSignalKind::Description: return "description";
+		case Proto::P2PSignalKind::Candidate: return "candidate";
+		case Proto::P2PSignalKind::GatheringDone: return "gathering done";
+		}
+		return "unknown";
+	}
+
+	// ICE signaling between two room members; the server relays blindly and
+	// never looks inside the sdp payload. Bad targets are dropped, not
+	// errored: a trickled candidate can race the target's departure, and the
+	// sender never sees these frames as actions to be answered anyway.
+	void Server::HandleP2PSignal(const std::shared_ptr<Connection>& conn, const Proto::P2PSignal& msg)
+	{
+		auto it = _rooms.find(conn->room);
+		if (it == _rooms.end()) {
+			spdlog::debug("Client {} p2p {} dropped: not in a room", conn->id, P2PSignalKindName(msg.kind));
+			return;
+		}
+
+		if (msg.id == conn->id || std::ranges::find(it->second.members, msg.id) == it->second.members.end()) {
+			spdlog::debug("Client {} p2p {} dropped: client {} is not another member of room {}", conn->id, P2PSignalKindName(msg.kind), msg.id, it->second.id);
+			return;
+		}
+
+		if (msg.kind == Proto::P2PSignalKind::Description)
+			spdlog::info("Client {} sent p2p description to client {} (room {})", conn->id, msg.id, it->second.id); // one per handshake side
+
+		spdlog::debug("Client {} -> {} p2p {}: {}", conn->id, msg.id, P2PSignalKindName(msg.kind), msg.payload);
+		SendTo(msg.id, Proto::P2PSignal{ conn->id, msg.kind, msg.payload }); // forwarded carrying the sender's id
 	}
 
 	void Server::HandleSetRoomData(const std::shared_ptr<Connection>& conn, const Proto::SetRoomData& msg)
