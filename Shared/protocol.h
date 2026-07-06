@@ -18,6 +18,7 @@ namespace Weyvelength::Proto {
 		NoSuchMember, // target id is not another member of the room
 		RoomClosed, // the room is not joinable right now
 		BadPassword, // wrong password on join, or an over-long one on set
+		Banned, // the host has barred this client from the room
 	};
 
 	struct CreateRoom {}; // client -> server: create a room and join it
@@ -65,11 +66,13 @@ namespace Weyvelength::Proto {
 	};
 
 	struct KickMember { uint32_t id = 0; }; // client -> server: host-only, remove a member from the room
+	struct BanMember { uint32_t id = 0; }; // client -> server: host-only, remove a member and bar them from rejoining
 	struct TransferHost { uint32_t id = 0; }; // client -> server: host-only, hand host status to another member
 	struct SetRoomJoinable { bool open = true; }; // client -> server: host-only, open or close the room for joining
 	struct SetRoomPassword { std::string password; }; // client -> server: host-only; empty clears it
 
-	struct Kicked {}; // server -> client: the host removed you from the room
+	struct KickedByHost {}; // server -> client: the host removed you from the room
+	struct BannedByHost {}; // server -> client: the host removed you and barred you from rejoining
 
 	struct RoomAccessChanged { // server -> client: the room's joinability changed; the password itself never leaves the server
 		bool open = true;
@@ -81,7 +84,7 @@ namespace Weyvelength::Proto {
 	// breaks peers built against the old order.
 	using ServerMessage = std::variant<Heartbeat, AssignClientId, AssignRoomId, CreateRoom, JoinRoom, RoomError, RoomChat,
 		LeaveRoom, PeerJoined, PeerLeft, HostChanged, SetRoomData, RoomDataChanged, SetMemberData, MemberDataChanged,
-		KickMember, TransferHost, SetRoomJoinable, SetRoomPassword, Kicked, RoomAccessChanged>;
+		KickMember, TransferHost, SetRoomJoinable, SetRoomPassword, KickedByHost, RoomAccessChanged, BanMember, BannedByHost>;
 
 	struct tmp {};
 	using P2PMessage = std::variant<tmp>;   // peer-to-peer channel, unused for now
