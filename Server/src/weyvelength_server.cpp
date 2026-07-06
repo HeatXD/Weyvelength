@@ -184,6 +184,9 @@ namespace Weyvelength {
 		else if (auto* kick = std::get_if<Proto::KickMember>(&msg)) {
 			HandleKickMember(conn, *kick);
 		}
+		else if (auto* ban = std::get_if<Proto::BanMember>(&msg)) {
+			HandleBanMember(conn, *ban);
+		}
 		else if (auto* transfer = std::get_if<Proto::TransferHost>(&msg)) {
 			HandleTransferHost(conn, *transfer);
 		}
@@ -246,6 +249,11 @@ namespace Weyvelength {
 		}
 
 		Room& room = it->second;
+		if (std::ranges::find(room.banned_members, conn->id) != room.banned_members.end()) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::Banned, msg.id });
+			return;
+		}
+
 		if (!room.open) {
 			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::RoomClosed, msg.id });
 			return;
@@ -389,15 +397,36 @@ namespace Weyvelength {
 			return;
 
 		auto target = _connections.find(msg.id);
-		if (msg.id == conn->id || target == _connections.end() || target->second->room != room->id) {
+		if (msg.id == room->host || target == _connections.end() || target->second->room != room->id) {
 			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::NoSuchMember, std::to_string(msg.id) });
 			return;
 		}
 
-		SendTo(msg.id, Proto::Kicked{});
+		SendTo(msg.id, Proto::KickedByHost{});
 		LeaveRoom(target->second); // removal + PeerLeft broadcast, same as any other exit
 
 		spdlog::info("Client {} kicked from room {} by client {}", msg.id, room->id, conn->id);
+	}
+
+	void Server::HandleBanMember(const std::shared_ptr<Connection>& conn, const Proto::BanMember& msg)
+	{
+		Room* room = HostRoom(conn);
+		if (!room)
+			return;
+
+		auto target = _connections.find(msg.id);
+		if (msg.id == room->host || target == _connections.end() || target->second->room != room->id) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::NoSuchMember, std::to_string(msg.id) });
+			return;
+		}
+
+		if (std::ranges::find(room->banned_members, msg.id) == room->banned_members.end())
+			room->banned_members.push_back(msg.id); // barred until the room closes; join now rejects them
+
+		SendTo(msg.id, Proto::BannedByHost{});
+		LeaveRoom(target->second); // removal + PeerLeft broadcast, same as a kick
+
+		spdlog::info("Client {} banned from room {} by client {}", msg.id, room->id, conn->id);
 	}
 
 	void Server::HandleTransferHost(const std::shared_ptr<Connection>& conn, const Proto::TransferHost& msg)

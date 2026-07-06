@@ -49,6 +49,7 @@ namespace Weyvelength {
 		std::map<uint32_t, std::map<std::string, std::string>> member_data; // per-member metadata, dropped when the member leaves
 		bool open = true; // joinable right now?
 		std::string password; // empty = none; checked on join, never sent to clients
+		std::vector<uint32_t> banned_members; // ids barred from joining; checked on join
 	};
 
 	struct Server {
@@ -68,6 +69,7 @@ namespace Weyvelength {
 		void HandleSetRoomData(const std::shared_ptr<Connection>& conn, const Proto::SetRoomData& msg);
 		void HandleSetMemberData(const std::shared_ptr<Connection>& conn, const Proto::SetMemberData& msg);
 		void HandleKickMember(const std::shared_ptr<Connection>& conn, const Proto::KickMember& msg);
+		void HandleBanMember(const std::shared_ptr<Connection>& conn, const Proto::BanMember& msg);
 		void HandleTransferHost(const std::shared_ptr<Connection>& conn, const Proto::TransferHost& msg);
 		void HandleSetRoomJoinable(const std::shared_ptr<Connection>& conn, const Proto::SetRoomJoinable& msg);
 		void HandleSetRoomPassword(const std::shared_ptr<Connection>& conn, const Proto::SetRoomPassword& msg);
