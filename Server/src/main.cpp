@@ -13,9 +13,10 @@ int main()
 	// message so redirected output stays live.
 	spdlog::init_thread_pool(8192, 1);
 	spdlog::set_default_logger(spdlog::create_async<spdlog::sinks::stdout_color_sink_mt>("weyvelength"));
-	spdlog::flush_on(spdlog::level::info);
+	spdlog::set_level(spdlog::level::debug); // dev server: show the p2p signal traffic
+	spdlog::flush_on(spdlog::level::debug);
 
-	ServerConfig config{ .port = 5555 };
+	ServerConfig config{ .port = 5555, .ice = { .stun_host = "stun.l.google.com", .stun_port = 19302 } };
 
 	Server server;
 	if (!server.Init(config)) {
