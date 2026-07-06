@@ -178,18 +178,20 @@ namespace Weyvelength {
 
 	void Client::HandleP2PDescription(PeerLink* link, const Proto::P2PSignal& sig)
 	{
-		if (!link) {
-			link = CreateLink(sig.id); // a peer reached out; answer
+		bool answering = !link;
+		if (answering) {
+			link = CreateLink(sig.id); // a peer reached out with no link of ours yet
 			if (!link)
 				return;
-			juice_set_remote_description(link->agent, sig.payload.c_str()); // remote first = controlled role
-			link->remote_set = true;
-			ShareLink(*link, sig.id);
 		}
-		else if (!link->remote_set) {
-			juice_set_remote_description(link->agent, sig.payload.c_str()); // glare; the ICE tie-breaker settles roles
+
+		if (!link->remote_set) { // glare aside, apply the remote description once
+			juice_set_remote_description(link->agent, sig.payload.c_str());
 			link->remote_set = true;
 		}
+
+		if (answering)
+			ShareLink(*link, sig.id); // remote set first = we take the controlled role
 	}
 
 	void Client::PollPeers()
