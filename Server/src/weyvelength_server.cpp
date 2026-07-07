@@ -354,9 +354,10 @@ namespace Weyvelength {
 			return;
 		}
 
-		// description at info, the chattier candidate/gather trickle at debug
-		auto level = msg.kind == Proto::P2PSignalKind::Description ? spdlog::level::info : spdlog::level::debug;
-		spdlog::log(level, "c{} -> c{} p2p {}: {}", conn->id, msg.id, P2PSignalKindName(msg.kind), msg.payload);
+		// a size summary at info; the payload (ice creds, local ips) only at debug
+		if (msg.kind == Proto::P2PSignalKind::Description)
+			spdlog::info("c{} -> c{} p2p description ({} bytes)", conn->id, msg.id, msg.payload.size());
+		spdlog::debug("c{} -> c{} p2p {}: {}", conn->id, msg.id, P2PSignalKindName(msg.kind), msg.payload);
 		SendTo(msg.id, Proto::P2PSignal{ conn->id, msg.kind, msg.payload }); // forwarded carrying the sender's id
 	}
 
