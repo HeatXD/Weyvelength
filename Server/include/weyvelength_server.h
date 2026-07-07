@@ -23,6 +23,7 @@ namespace Weyvelength {
 	struct ServerConfig {
 		uint16_t port = 0;
 		uint32_t room_code_length = 0; // 0 = use the default (8)
+		Proto::IceServers ice; // stun/turn handed to every client on connect
 	};
 
 	struct Connection {
@@ -66,6 +67,7 @@ namespace Weyvelength {
 		void HandleJoinRoom(const std::shared_ptr<Connection>& conn, const Proto::JoinRoom& msg);
 		void HandleLeaveRoom(const std::shared_ptr<Connection>& conn);
 		void HandleRoomChat(const std::shared_ptr<Connection>& conn, const Proto::RoomChat& msg);
+		void HandleP2PSignal(const std::shared_ptr<Connection>& conn, const Proto::P2PSignal& msg);
 		void HandleSetRoomData(const std::shared_ptr<Connection>& conn, const Proto::SetRoomData& msg);
 		void HandleSetMemberData(const std::shared_ptr<Connection>& conn, const Proto::SetMemberData& msg);
 		void HandleKickMember(const std::shared_ptr<Connection>& conn, const Proto::KickMember& msg);

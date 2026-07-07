@@ -85,6 +85,22 @@ static void PrintRoomInfo(const Weyvelength::Client& client)
 	}
 }
 
+// "/p2p 3 hello"; sends the text bytes to one peer over the mesh.
+static void SendP2PCommand(Weyvelength::Client& client, const std::string& args)
+{
+	size_t space = args.find(' ');
+	uint32_t id = ParseId(args.substr(0, space));
+	if (space == std::string::npos || id == 0) {
+		std::cout << "usage: /p2p ID TEXT\n";
+		return;
+	}
+
+	std::string text = args.substr(space + 1);
+	auto* bytes = (const std::byte*)text.data();
+	if (!client.SendP2P(id, { bytes, bytes + text.size() }))
+		std::cout << "p2p send to client " << id << " failed\n";
+}
+
 // "/set KEY VALUE" or "/setme KEY VALUE"; the value may contain spaces.
 static void SendSetCommand(Weyvelength::Client& client, const std::string& args, bool own)
 {
@@ -146,6 +162,7 @@ static int RunChat(Weyvelength::Client& client, const std::string& code, const s
 				std::cout << "In room " << room->id << " (join it: test chat " << room->id << ")\n";
 				std::cout << "Commands: /who, /set KEY VALUE, /del KEY, /setme KEY VALUE, /delme KEY\n";
 				std::cout << "          /open, /close, /pass [PASSWORD], /kick ID, /ban ID, /host ID, /leave\n";
+				std::cout << "          /p2p ID TEXT (direct, over the mesh)\n";
 			}
 			else if (auto* error = std::get_if<Proto::RoomError>(&msg)) {
 				PrintRoomError(*error);
@@ -193,6 +210,13 @@ static int RunChat(Weyvelength::Client& client, const std::string& code, const s
 			}
 		}
 
+		uint32_t from = 0;
+		Proto::P2PMessage data;
+		while (client.NextP2P(from, data)) {
+			std::string text{ (const char*)data.data(), data.size() };
+			std::cout << "[p2p client " << from << "] " << text << "\n";
+		}
+
 		// Lines typed before the room is joined stay queued until it is.
 		std::string line;
 		while (!client.RoomId().empty() && NextInputLine(line)) {
@@ -224,6 +248,8 @@ static int RunChat(Weyvelength::Client& client, const std::string& code, const s
 				client.BanMember(ParseId(line.substr(5)));
 			else if (line.rfind("/host ", 0) == 0)
 				client.TransferHost(ParseId(line.substr(6)));
+			else if (line.rfind("/p2p ", 0) == 0)
+				SendP2PCommand(client, line.substr(5));
 			else
 				client.SendChat(line);
 		}

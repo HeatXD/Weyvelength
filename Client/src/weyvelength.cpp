@@ -12,17 +12,23 @@
 #include <thirdparty\zpp_bits\zpp_bits.h>
 
 #include "framing.h"
+#include "p2p_mesh.h"
 
 namespace Weyvelength {
 	struct ClientAsioImpl {
 		asio::io_context context;
 		asio::ip::tcp::socket socket{ context };
 		std::vector<std::byte> rx;   // bytes received but not yet consumed
+		std::vector<std::byte> rx_msg; // fragments of the message being reassembled
 		std::vector<std::byte> tx;   // framed bytes queued to send
 	};
 
-	Client::Client() : _asio(std::make_unique<ClientAsioImpl>()) {}
-	Client::~Client() = default;
+	Client::Client() : _asio(std::make_unique<ClientAsioImpl>()), _mesh(std::make_unique<P2PMesh>()) {}
+
+	Client::~Client()
+	{
+		DestroyAllLinks();
+	}
 
 	bool Client::Connect(ClientConfig& config)
 	{
@@ -42,15 +48,14 @@ namespace Weyvelength {
 
 	bool Client::Poll()
 	{
-		return PollServer();
-	}
-
-	bool Client::PollServer()
-	{
 		if (!_asio->socket.is_open())
 			return false;
 
-		return DrainServer() && CarveServer() && FlushServer();
+		if (!DrainServer() || !CarveServer())
+			return false;
+
+		PollPeers(); // may queue signal frames; the flush below sends them
+		return FlushServer();
 	}
 
 	bool Client::Next(Proto::ServerMessage& out)
@@ -225,26 +230,38 @@ namespace Weyvelength {
 		std::span<std::byte> remaining{ impl.rx };
 		while (remaining.size() >= header_size) {
 			uint32_t len;
-			if (failure(zpp::bits::in{ remaining.first(header_size) }(len)))
-				return DisconnectServer();
-			if (len > Proto::max_message_size)
+			bool more;
+			if (!Proto::DecodeFrameHeader(remaining.first(header_size), len, more))
 				return DisconnectServer();
 			if (remaining.size() < header_size + len)
-				break;   // full frame hasn't arrived yet
+				break;   // full fragment hasn't arrived yet
+
+			if (!Proto::AppendFragment(impl.rx_msg, remaining.subspan(header_size, len)))
+				return DisconnectServer(); // reassembled message too large
+			remaining = remaining.subspan(header_size + len);
+
+			if (more)
+				continue;   // wait for the rest of the message
 
 			Proto::ServerMessage msg;
-			zpp::bits::in body{ remaining.subspan(header_size, len) };
-			if (failure(body(msg)))
+			bool bad = failure(zpp::bits::in{ impl.rx_msg }(msg));
+			impl.rx_msg.clear();
+			if (bad)
 				return DisconnectServer();
 
 			if (auto* assign = std::get_if<Proto::AssignClientId>(&msg)) {
 				_id = assign->id;   // transport metadata; not surfaced via Next()
 			}
+			else if (auto* ice = std::get_if<Proto::IceServers>(&msg)) {
+				_ice = std::move(*ice);   // transport metadata; not surfaced via Next()
+			}
+			else if (auto* signal = std::get_if<Proto::P2PSignal>(&msg)) {
+				HandleP2PSignal(*signal);   // ICE plumbing; not surfaced via Next()
+			}
 			else {
 				CacheRoomState(msg); // cached for the accessors, but still surfaced via Next()
 				_inbox.push(std::move(msg));
 			}
-			remaining = remaining.subspan(header_size + len);
 		}
 
 		size_t consumed = impl.rx.size() - remaining.size();
@@ -293,6 +310,8 @@ namespace Weyvelength {
 			else {
 				std::erase(_members, left->id);
 				_member_data.erase(left->id);
+				DestroyLink(left->id); // no member, no mesh link
+				_mesh->attempts.erase(left->id); // and no grudge if they rejoin
 			}
 		}
 		else if (auto* host = std::get_if<Proto::HostChanged>(&msg)) {
@@ -331,6 +350,7 @@ namespace Weyvelength {
 
 	void Client::ClearRoomState()
 	{
+		DestroyAllLinks(); // the mesh only spans the current room
 		_room.clear();
 		_host = 0;
 		_room_open = true;

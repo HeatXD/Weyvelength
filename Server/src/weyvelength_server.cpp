@@ -91,6 +91,7 @@ namespace Weyvelength {
 		asio::co_spawn(conn->socket.get_executor(), WriteLoop(conn), asio::detached);
 
 		SendTo(conn->id, Proto::AssignClientId{ conn->id });
+		SendTo(conn->id, _config.ice); // p2p infrastructure; empty fields = none
 
 		try {
 			co_await ReadLoop(conn);
@@ -112,20 +113,29 @@ namespace Weyvelength {
 
 	asio::awaitable<void> Server::ReadLoop(std::shared_ptr<Connection> conn)
 	{
+		std::vector<std::byte> body; // fragments of the message being reassembled
 		while (true) {
 			std::array<std::byte, Proto::frame_header_size> header;
 			co_await asio::async_read(conn->socket, asio::buffer(header), use_awaitable);
 
 			uint32_t len;
-			if (!Proto::DecodeFrameLength(header, len))
+			bool more;
+			if (!Proto::DecodeFrameHeader(header, len, more))
 				co_return;   // protocol error? end the session
 
-			std::vector<std::byte> body(len);
-			co_await asio::async_read(conn->socket, asio::buffer(body), use_awaitable);
+			size_t base = body.size();
+			if (base + len > Proto::max_reassembled_size)
+				co_return;   // reassembled message too large
+			body.resize(base + len);
+			co_await asio::async_read(conn->socket, asio::buffer(body.data() + base, len), use_awaitable);
+
+			if (more)
+				continue;   // wait for the rest of the message
 
 			Proto::ServerMessage msg;
 			if (failure(zpp::bits::in{ body }(msg)))
 				co_return;
+			body.clear();
 
 			HandleMessage(conn, msg);
 		}
@@ -174,6 +184,9 @@ namespace Weyvelength {
 		}
 		else if (auto* chat = std::get_if<Proto::RoomChat>(&msg)) {
 			HandleRoomChat(conn, *chat);
+		}
+		else if (auto* signal = std::get_if<Proto::P2PSignal>(&msg)) {
+			HandleP2PSignal(conn, *signal);
 		}
 		else if (auto* set = std::get_if<Proto::SetRoomData>(&msg)) {
 			HandleSetRoomData(conn, *set);
@@ -314,6 +327,38 @@ namespace Weyvelength {
 
 		// sender included: everyone in the room sees the same stream
 		SendToMany(it->second.members, Proto::RoomChat{ conn->id, msg.text });
+	}
+
+	static const char* P2PSignalKindName(Proto::P2PSignalKind kind)
+	{
+		switch (kind) {
+		case Proto::P2PSignalKind::Description: return "description";
+		case Proto::P2PSignalKind::Candidate: return "candidate";
+		case Proto::P2PSignalKind::GatheringDone: return "gathering done";
+		}
+		return "unknown";
+	}
+
+	// Relays ICE signaling between room members without reading the sdp. Bad
+	// targets are dropped, not errored: a candidate can race the target's departure.
+	void Server::HandleP2PSignal(const std::shared_ptr<Connection>& conn, const Proto::P2PSignal& msg)
+	{
+		auto it = _rooms.find(conn->room);
+		if (it == _rooms.end()) {
+			spdlog::debug("c{} p2p {} dropped: no room", conn->id, P2PSignalKindName(msg.kind));
+			return;
+		}
+
+		if (msg.id == conn->id || std::ranges::find(it->second.members, msg.id) == it->second.members.end()) {
+			spdlog::debug("c{} p2p {} dropped: {} not a room-{} member", conn->id, P2PSignalKindName(msg.kind), msg.id, it->second.id);
+			return;
+		}
+
+		// a size summary at info; the payload (ice creds, local ips) only at debug
+		if (msg.kind == Proto::P2PSignalKind::Description)
+			spdlog::info("c{} -> c{} p2p description ({} bytes)", conn->id, msg.id, msg.payload.size());
+		spdlog::debug("c{} -> c{} p2p {}: {}", conn->id, msg.id, P2PSignalKindName(msg.kind), msg.payload);
+		SendTo(msg.id, Proto::P2PSignal{ conn->id, msg.kind, msg.payload }); // forwarded carrying the sender's id
 	}
 
 	void Server::HandleSetRoomData(const std::shared_ptr<Connection>& conn, const Proto::SetRoomData& msg)

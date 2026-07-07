@@ -1,8 +1,10 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <variant>
+#include <vector>
 
 namespace Weyvelength::Proto {
 	struct Heartbeat { uint64_t timestamp; };   // server <-> client heartbeat
@@ -79,15 +81,43 @@ namespace Weyvelength::Proto {
 		bool passworded = false;
 	};
 
+	enum class P2PSignalKind : uint8_t {
+		Description,
+		Candidate,
+		GatheringDone,
+	};
+
+	struct P2PSignal { // relayed ICE signaling; id is the target on send, the sender on receive
+		uint32_t id = 0;
+		P2PSignalKind kind{};
+		std::string payload; // sdp text
+	};
+
+	struct TurnServer {
+		std::string host;
+		uint16_t port = 0;
+		std::string username;
+		std::string password;
+	};
+
+	struct IceServers { // server -> client: sent once after connect
+		std::string stun_host; // empty = no stun
+		uint16_t stun_port = 0;
+		std::vector<TurnServer> turn;
+	};
+
 	// All traffic on the server connection, both directions. Only append new
 	// messages: zpp_bits encodes the variant index, so inserting in the middle
 	// breaks peers built against the old order.
 	using ServerMessage = std::variant<Heartbeat, AssignClientId, AssignRoomId, CreateRoom, JoinRoom, RoomError, RoomChat,
 		LeaveRoom, PeerJoined, PeerLeft, HostChanged, SetRoomData, RoomDataChanged, SetMemberData, MemberDataChanged,
-		KickMember, TransferHost, SetRoomJoinable, SetRoomPassword, KickedByHost, RoomAccessChanged, BanMember, BannedByHost>;
+		KickMember, TransferHost, SetRoomJoinable, SetRoomPassword, KickedByHost, RoomAccessChanged, BanMember, BannedByHost,
+		P2PSignal, IceServers>;
 
-	struct tmp {};
-	using P2PMessage = std::variant<tmp>;   // peer-to-peer channel, unused for now
+	// Opaque bytes, one datagram per message; the app defines its own encoding.
+	using P2PMessage = std::vector<std::byte>;
+
+	constexpr uint32_t max_p2p_message_size = 1024;
 
 	constexpr uint32_t max_message_size = 1024;
 
