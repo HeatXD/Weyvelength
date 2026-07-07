@@ -16,6 +16,7 @@ namespace Weyvelength {
 	struct JuiceEvent { // one callback crossing from juice's threads into Poll
 		enum class Kind { State, Candidate, GatheringDone, Recv };
 		Kind kind{};
+		juice_agent_t* agent = nullptr; // which agent queued it; a rebuilt link ignores strays
 		uint32_t peer = 0;
 		juice_state_t state = JUICE_STATE_DISCONNECTED; // Kind::State only
 		std::vector<std::byte> payload; // candidate sdp or Kind::Recv datagram

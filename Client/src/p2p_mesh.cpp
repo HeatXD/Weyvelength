@@ -11,35 +11,36 @@ namespace Weyvelength {
 	constexpr uint32_t max_connection_attempts = 3; // ICE tries per peer before we give up
 
 	// Juice callbacks run on juice's threads; they only queue, Poll does the rest.
-	static void PushJuiceEvent(void* user_ptr, JuiceEvent ev)
+	static void PushJuiceEvent(juice_agent_t* agent, void* user_ptr, JuiceEvent ev)
 	{
 		auto* ctx = static_cast<JuiceCallbackContext*>(user_ptr);
+		ev.agent = agent;
 		ev.peer = ctx->peer;
 
 		std::lock_guard lock(ctx->mesh->mutex);
 		ctx->mesh->events.push_back(std::move(ev));
 	}
 
-	static void OnJuiceState(juice_agent_t*, juice_state_t state, void* user_ptr)
+	static void OnJuiceState(juice_agent_t* agent, juice_state_t state, void* user_ptr)
 	{
-		PushJuiceEvent(user_ptr, { .kind = JuiceEvent::Kind::State, .state = state });
+		PushJuiceEvent(agent, user_ptr, { .kind = JuiceEvent::Kind::State, .state = state });
 	}
 
-	static void OnJuiceCandidate(juice_agent_t*, const char* sdp, void* user_ptr)
+	static void OnJuiceCandidate(juice_agent_t* agent, const char* sdp, void* user_ptr)
 	{
 		auto* bytes = (const std::byte*)sdp;
-		PushJuiceEvent(user_ptr, { .kind = JuiceEvent::Kind::Candidate, .payload = { bytes, bytes + std::strlen(sdp) } });
+		PushJuiceEvent(agent, user_ptr, { .kind = JuiceEvent::Kind::Candidate, .payload = { bytes, bytes + std::strlen(sdp) } });
 	}
 
-	static void OnJuiceGatheringDone(juice_agent_t*, void* user_ptr)
+	static void OnJuiceGatheringDone(juice_agent_t* agent, void* user_ptr)
 	{
-		PushJuiceEvent(user_ptr, { .kind = JuiceEvent::Kind::GatheringDone });
+		PushJuiceEvent(agent, user_ptr, { .kind = JuiceEvent::Kind::GatheringDone });
 	}
 
-	static void OnJuiceRecv(juice_agent_t*, const char* data, size_t size, void* user_ptr)
+	static void OnJuiceRecv(juice_agent_t* agent, const char* data, size_t size, void* user_ptr)
 	{
 		auto* bytes = (const std::byte*)data;
-		PushJuiceEvent(user_ptr, { .kind = JuiceEvent::Kind::Recv, .payload = { bytes, bytes + size } });
+		PushJuiceEvent(agent, user_ptr, { .kind = JuiceEvent::Kind::Recv, .payload = { bytes, bytes + size } });
 	}
 
 	bool Client::SendP2P(uint32_t id, const Proto::P2PMessage& msg)
@@ -188,8 +189,18 @@ namespace Weyvelength {
 
 	void Client::HandleP2PDescription(PeerLink* link, const Proto::P2PSignal& sig)
 	{
+		// a second description on a link that already spent its one
+		// juice_set_remote_description is the peer redialing with a fresh agent
+		// (theirs died, ours survived); ours is pinned to the old credentials,
+		// so tear it down and answer the new one
+		if (link && link->remote_set) {
+			DestroyLink(sig.id);
+			link = nullptr;
+		}
+
 		bool answering = !link;
 		if (answering) {
+			_mesh->attempts.erase(sig.id); // an inbound dial proves the peer is alive; answering is always allowed
 			link = CreateLink(sig.id); // a peer reached out with no link of ours yet
 			if (!link)
 				return;
@@ -221,8 +232,8 @@ namespace Weyvelength {
 	void Client::HandleJuiceEvent(JuiceEvent& ev)
 	{
 		PeerLink* link = FindLink(ev.peer);
-		if (!link)
-			return; // the link was torn down after this event was queued
+		if (!link || link->agent != ev.agent)
+			return; // the link was torn down (or rebuilt) after this event was queued
 
 		switch (ev.kind) {
 		case JuiceEvent::Kind::State:
