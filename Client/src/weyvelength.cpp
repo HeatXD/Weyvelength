@@ -19,6 +19,7 @@ namespace Weyvelength {
 		asio::io_context context;
 		asio::ip::tcp::socket socket{ context };
 		std::vector<std::byte> rx;   // bytes received but not yet consumed
+		std::vector<std::byte> rx_msg; // fragments of the message being reassembled
 		std::vector<std::byte> tx;   // framed bytes queued to send
 	};
 
@@ -229,16 +230,23 @@ namespace Weyvelength {
 		std::span<std::byte> remaining{ impl.rx };
 		while (remaining.size() >= header_size) {
 			uint32_t len;
-			if (failure(zpp::bits::in{ remaining.first(header_size) }(len)))
-				return DisconnectServer();
-			if (len > Proto::max_message_size)
+			bool more;
+			if (!Proto::DecodeFrameHeader(remaining.first(header_size), len, more))
 				return DisconnectServer();
 			if (remaining.size() < header_size + len)
-				break;   // full frame hasn't arrived yet
+				break;   // full fragment hasn't arrived yet
+
+			if (!Proto::AppendFragment(impl.rx_msg, remaining.subspan(header_size, len)))
+				return DisconnectServer(); // reassembled message too large
+			remaining = remaining.subspan(header_size + len);
+
+			if (more)
+				continue;   // wait for the rest of the message
 
 			Proto::ServerMessage msg;
-			zpp::bits::in body{ remaining.subspan(header_size, len) };
-			if (failure(body(msg)))
+			bool bad = failure(zpp::bits::in{ impl.rx_msg }(msg));
+			impl.rx_msg.clear();
+			if (bad)
 				return DisconnectServer();
 
 			if (auto* assign = std::get_if<Proto::AssignClientId>(&msg)) {
@@ -254,7 +262,6 @@ namespace Weyvelength {
 				CacheRoomState(msg); // cached for the accessors, but still surfaced via Next()
 				_inbox.push(std::move(msg));
 			}
-			remaining = remaining.subspan(header_size + len);
 		}
 
 		size_t consumed = impl.rx.size() - remaining.size();

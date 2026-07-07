@@ -113,20 +113,29 @@ namespace Weyvelength {
 
 	asio::awaitable<void> Server::ReadLoop(std::shared_ptr<Connection> conn)
 	{
+		std::vector<std::byte> body; // fragments of the message being reassembled
 		while (true) {
 			std::array<std::byte, Proto::frame_header_size> header;
 			co_await asio::async_read(conn->socket, asio::buffer(header), use_awaitable);
 
 			uint32_t len;
-			if (!Proto::DecodeFrameLength(header, len))
+			bool more;
+			if (!Proto::DecodeFrameHeader(header, len, more))
 				co_return;   // protocol error? end the session
 
-			std::vector<std::byte> body(len);
-			co_await asio::async_read(conn->socket, asio::buffer(body), use_awaitable);
+			size_t base = body.size();
+			if (base + len > Proto::max_reassembled_size)
+				co_return;   // reassembled message too large
+			body.resize(base + len);
+			co_await asio::async_read(conn->socket, asio::buffer(body.data() + base, len), use_awaitable);
+
+			if (more)
+				continue;   // wait for the rest of the message
 
 			Proto::ServerMessage msg;
 			if (failure(zpp::bits::in{ body }(msg)))
 				co_return;
+			body.clear();
 
 			HandleMessage(conn, msg);
 		}

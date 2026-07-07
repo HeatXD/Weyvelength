@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -10,29 +11,59 @@
 #include "protocol.h"
 
 // Wire framing shared by both ends of the server connection: a message is
-// encoded as [uint32 length][zpp_bits body]. Transport (asio coroutines on the
-// server, polled sockets on the client) differs, but this byte layout does not.
+// encoded as one or more [uint32 header][fragment] frames. The header's low
+// bits are the fragment byte count (<= max_message_size); the high bit means
+// more fragments of the same message follow. A message that fits in one frame
+// keeps the top bit clear, so single-fragment traffic is byte-for-byte the
+// plain length prefix. Transport (asio coroutines on the server, polled
+// sockets on the client) differs, but this byte layout does not.
 namespace Weyvelength::Proto {
 	constexpr size_t frame_header_size = sizeof(uint32_t);
+	constexpr uint32_t frame_more_flag = 0x80000000u; // header high bit: another fragment follows
+	constexpr size_t max_reassembled_size = 16 * max_message_size; // cap on one reassembled message
 
-	// Encodes a message as a length-prefixed frame ready to write to a socket.
+	// Encodes a message as one or more length-prefixed fragments, each within
+	// max_message_size, ready to write to a socket back to back.
 	inline std::vector<std::byte> FrameMessage(const ServerMessage& msg)
 	{
 		std::vector<std::byte> body;
 		zpp::bits::out{ body }(msg).or_throw();
 
-		std::vector<std::byte> frame;
-		zpp::bits::out{ frame }((uint32_t)body.size()).or_throw();
-		frame.insert(frame.end(), body.begin(), body.end());
-		return frame;
+		std::vector<std::byte> frames;
+		size_t offset = 0;
+		do {
+			uint32_t chunk = (uint32_t)std::min<size_t>(max_message_size, body.size() - offset);
+			bool more = offset + chunk < body.size();
+
+			std::vector<std::byte> header;
+			zpp::bits::out{ header }(chunk | (more ? frame_more_flag : 0u)).or_throw();
+			frames.insert(frames.end(), header.begin(), header.end());
+			frames.insert(frames.end(), body.begin() + offset, body.begin() + offset + chunk);
+			offset += chunk;
+		} while (offset < body.size());
+
+		return frames;
 	}
 
-	// Reads the body length from a frame header. False if the bytes are
-	// unreadable or the length exceeds max_message_size.
-	inline bool DecodeFrameLength(std::span<const std::byte> header, uint32_t& len)
+	// Splits a frame header into its fragment length and more-fragments flag.
+	// False if the bytes are unreadable or the length exceeds max_message_size.
+	inline bool DecodeFrameHeader(std::span<const std::byte> header, uint32_t& len, bool& more)
 	{
-		if (failure(zpp::bits::in{ header }(len)))
+		uint32_t raw;
+		if (failure(zpp::bits::in{ header }(raw)))
 			return false;
+		more = (raw & frame_more_flag) != 0;
+		len = raw & ~frame_more_flag;
 		return len <= max_message_size;
+	}
+
+	// Appends a fragment payload to a message being reassembled, guarding the
+	// total against max_reassembled_size. False = the message is oversized.
+	inline bool AppendFragment(std::vector<std::byte>& body, std::span<const std::byte> payload)
+	{
+		if (body.size() + payload.size() > max_reassembled_size)
+			return false;
+		body.insert(body.end(), payload.begin(), payload.end());
+		return true;
 	}
 }
