@@ -81,7 +81,7 @@ namespace Weyvelength {
 		return true;
 	}
 
-	bool Client::PeerConnected(uint32_t id) const
+	bool Client::PeerConnectedP2P(uint32_t id) const
 	{
 		auto it = _mesh->links.find(id);
 		return it != _mesh->links.end() && it->second.connected;

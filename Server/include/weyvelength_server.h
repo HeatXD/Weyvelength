@@ -62,6 +62,7 @@ namespace Weyvelength {
 		void SendTo(uint32_t id, const Proto::ServerMessage& msg);
 		void SendToMany(const std::vector<uint32_t>& ids, const Proto::ServerMessage& msg);
 		void SendFrame(uint32_t id, std::vector<std::byte> frame);
+
 		void HandleMessage(std::shared_ptr<Connection> conn, const Proto::ServerMessage& msg);
 		void HandleCreateRoom(const std::shared_ptr<Connection>& conn);
 		void HandleJoinRoom(const std::shared_ptr<Connection>& conn, const Proto::JoinRoom& msg);
@@ -75,6 +76,7 @@ namespace Weyvelength {
 		void HandleTransferHost(const std::shared_ptr<Connection>& conn, const Proto::TransferHost& msg);
 		void HandleSetRoomJoinable(const std::shared_ptr<Connection>& conn, const Proto::SetRoomJoinable& msg);
 		void HandleSetRoomPassword(const std::shared_ptr<Connection>& conn, const Proto::SetRoomPassword& msg);
+
 		void LeaveRoom(const std::shared_ptr<Connection>& conn);
 		Room* HostRoom(const std::shared_ptr<Connection>& conn); // the sender's room if they host it, else null after sending the error
 
@@ -88,7 +90,9 @@ namespace Weyvelength {
 
 		std::unordered_map<uint32_t, std::shared_ptr<Connection>> _connections;
 		std::unordered_map<std::string, Room> _rooms;
+
 		uint32_t _next_id = 1;   // 0 reserved as "none"
+
 		ServerConfig _config;
 	};
 }

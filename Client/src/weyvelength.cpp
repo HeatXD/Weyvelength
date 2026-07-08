@@ -23,7 +23,10 @@ namespace Weyvelength {
 		std::vector<std::byte> tx;   // framed bytes queued to send
 	};
 
-	Client::Client() : _asio(std::make_unique<ClientAsioImpl>()), _mesh(std::make_unique<P2PMesh>()) {}
+	Client::Client() :
+		_asio(std::make_unique<ClientAsioImpl>()),
+		_mesh(std::make_unique<P2PMesh>()) {
+	}
 
 	Client::~Client()
 	{
@@ -150,7 +153,7 @@ namespace Weyvelength {
 		return _room;
 	}
 
-	uint32_t Client::Host() const
+	uint32_t Client::HostId() const
 	{
 		return _host;
 	}

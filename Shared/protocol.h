@@ -118,7 +118,6 @@ namespace Weyvelength::Proto {
 	using P2PMessage = std::vector<std::byte>;
 
 	constexpr uint32_t max_p2p_message_size = 1024;
-
 	constexpr uint32_t max_message_size = 1024;
 
 	// Metadata limits, shared by room and member data. One key/value pair per

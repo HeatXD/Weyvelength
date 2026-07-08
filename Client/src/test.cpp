@@ -20,7 +20,7 @@ static void StartInputThread()
 			std::lock_guard lock(input_mutex);
 			input_lines.push(std::move(line));
 		}
-	}).detach();
+		}).detach();
 }
 
 static bool NextInputLine(std::string& out)
@@ -61,7 +61,7 @@ static uint32_t ParseId(const std::string& arg)
 
 static void PrintRoomInfo(const Weyvelength::Client& client)
 {
-	std::cout << "Room " << client.RoomId() << ", host " << client.Host() << (client.IsHost() ? " (you)" : "") << "\n";
+	std::cout << "Room " << client.RoomId() << ", host " << client.HostId() << (client.IsHost() ? " (you)" : "") << "\n";
 	std::cout << (client.RoomJoinable() ? "Open to join" : "Closed") << (client.RoomPassworded() ? ", password required" : "") << "\n";
 
 	std::cout << "Members:";
