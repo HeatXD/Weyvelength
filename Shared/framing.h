@@ -6,7 +6,7 @@
 #include <span>
 #include <vector>
 
-#include <thirdparty\zpp_bits\zpp_bits.h>
+#include <thirdparty/zpp_bits/zpp_bits.h>
 
 #include "protocol.h"
 

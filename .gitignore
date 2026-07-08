@@ -11,3 +11,7 @@
 /Client/Client/x64/Debug
 /Server/Server/x64/Debug
 /Server/Server.vcxproj.user
+
+# CMake build directories
+/build*/
+/out/
