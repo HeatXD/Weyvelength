@@ -12,3 +12,5 @@
 /Server/Server/x64/Debug
 /Server/Server.vcxproj.user
 /Tests/x64/Debug
+/ClientExample/x64/Debug
+/ClientExample/ClientExample.vcxproj.user
