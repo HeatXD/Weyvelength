@@ -4,6 +4,7 @@
 #include <iterator>
 #include <map>
 #include <string>
+#include <vector>
 
 #include "protocol.h"
 #include "weyvelength.h"
@@ -26,6 +27,31 @@ namespace Weyvelength::Marshal {
 		if (len)
 			*len = (uint32_t)value->size();
 		return value->data();
+	}
+
+	inline const std::string* Find(const std::map<std::string, std::string>& data, const std::string& key) // null if unset
+	{
+		auto it = data.find(key);
+		return it == data.end() ? nullptr : &it->second;
+	}
+
+	inline const Proto::RoomInfo* RoomAt(const std::vector<Proto::RoomInfo>& rooms, uint32_t index) // null past the end
+	{
+		return index < rooms.size() ? &rooms[index] : nullptr;
+	}
+
+	// The C filter array as the protocol's own; a null array is no filters at all.
+	inline std::vector<Proto::RoomFilter> Filters(const WeyveRoomFilter* filters, uint32_t count)
+	{
+		std::vector<Proto::RoomFilter> out;
+		if (!filters)
+			return out;
+
+		out.reserve(count);
+		for (uint32_t i = 0; i < count; i++)
+			out.push_back({ Str(filters[i].key), (Proto::RoomFilterOp)filters[i].op, Str(filters[i].value) });
+
+		return out;
 	}
 
 	inline const char* KeyAt(const std::map<std::string, std::string>& data, uint32_t index, uint32_t* key_len)
@@ -104,6 +130,24 @@ namespace Weyvelength::Marshal {
 			out->type = WEYVE_EVENT_ROOM_ACCESS_CHANGED;
 			out->data.room_access.open = access->open;
 			out->data.room_access.passworded = access->passworded;
+		}
+		else if (auto* listed = std::get_if<Proto::RoomListedChanged>(&msg)) {
+			out->type = WEYVE_EVENT_ROOM_LISTED_CHANGED;
+			out->data.room_listed.listed = listed->listed;
+		}
+		else if (auto* listing = std::get_if<Proto::RoomListingChanged>(&msg)) {
+			out->type = WEYVE_EVENT_ROOM_LISTING_CHANGED;
+			out->data.room_listing.key = listing->key.data();
+			out->data.room_listing.key_len = (uint32_t)listing->key.size();
+			out->data.room_listing.value = listing->value.data();
+			out->data.room_listing.value_len = (uint32_t)listing->value.size();
+		}
+		else if (auto* list = std::get_if<Proto::RoomList>(&msg)) {
+			// the rooms themselves come from the client's cache, not this event:
+			// they outlive it, and no union member could carry them anyway
+			out->type = WEYVE_EVENT_ROOM_LIST;
+			out->data.room_list.count = (uint32_t)list->rooms.size();
+			out->data.room_list.truncated = list->truncated;
 		}
 		else {
 			return false; // a client->server variant we never receive
