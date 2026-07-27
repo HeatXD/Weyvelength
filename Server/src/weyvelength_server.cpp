@@ -40,6 +40,8 @@ namespace Weyvelength {
 		_config = config;
 		if (_config.room_code_length == 0)
 			_config.room_code_length = 8;
+		if (_config.room_list_cooldown_ms == 0)
+			_config.room_list_cooldown_ms = 1000;
 
 		asio::error_code ec;
 
@@ -209,6 +211,15 @@ namespace Weyvelength {
 		else if (auto* password = std::get_if<Proto::SetRoomPassword>(&msg)) {
 			HandleSetRoomPassword(conn, *password);
 		}
+		else if (auto* listed = std::get_if<Proto::SetRoomListed>(&msg)) {
+			HandleSetRoomListed(conn, *listed);
+		}
+		else if (auto* listing = std::get_if<Proto::SetRoomListing>(&msg)) {
+			HandleSetRoomListing(conn, *listing);
+		}
+		else if (auto* list = std::get_if<Proto::ListRooms>(&msg)) {
+			HandleListRooms(conn, *list);
+		}
 	}
 
 	// Shared preamble of every host-only action: resolves the sender's room
@@ -289,9 +300,14 @@ namespace Weyvelength {
 
 		SendTo(conn->id, Proto::HostChanged{ room.host });
 		SendTo(conn->id, Proto::RoomAccessChanged{ room.open, !room.password.empty() });
+		SendTo(conn->id, Proto::RoomListedChanged{ room.listed });
 
 		for (const auto& [key, value] : room.data) {
 			SendTo(conn->id, Proto::RoomDataChanged{ key, value });
+		}
+
+		for (const auto& [key, value] : room.listing) {
+			SendTo(conn->id, Proto::RoomListingChanged{ key, value });
 		}
 
 		for (const auto& [member, data] : room.member_data) {
@@ -527,6 +543,135 @@ namespace Weyvelength {
 		room->password = msg.password;
 		if (was_passworded != !room->password.empty()) // members only learn the flag, never the password
 			SendToMany(room->members, Proto::RoomAccessChanged{ room->open, !room->password.empty() });
+	}
+
+	void Server::HandleSetRoomListed(const std::shared_ptr<Connection>& conn, const Proto::SetRoomListed& msg)
+	{
+		Room* room = HostRoom(conn);
+		if (!room)
+			return;
+
+		if (room->listed == msg.listed)
+			return; // unchanged, nothing to announce
+
+		room->listed = msg.listed;
+		SendToMany(room->members, Proto::RoomListedChanged{ room->listed });
+
+		spdlog::info("Room {} is now {}", room->id, room->listed ? "listed" : "unlisted");
+	}
+
+	// One slot's bounds, shared by the setter and by the filters matched against it
+	static bool ValidListingSlot(const std::string& key, const std::string& value)
+	{
+		return !key.empty() && key.size() <= Proto::max_room_listing_key && value.size() <= Proto::max_room_listing_value;
+	}
+
+	// Same shape as room data, against the much smaller listing budget. Slots
+	// survive unlisting, so flipping the room back on restores what it showed.
+	void Server::HandleSetRoomListing(const std::shared_ptr<Connection>& conn, const Proto::SetRoomListing& msg)
+	{
+		Room* hosted = HostRoom(conn);
+		if (!hosted)
+			return;
+
+		Room& room = *hosted;
+		if (!ValidListingSlot(msg.key, msg.value)) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::BadRoomData, msg.key });
+			return;
+		}
+
+		if (msg.value.empty()) { // empty value = clear
+			if (room.listing.erase(msg.key) == 0)
+				return; // nothing cleared, nothing to announce
+		}
+		else {
+			auto [entry, inserted] = room.listing.try_emplace(msg.key, msg.value);
+			if (inserted && room.listing.size() > Proto::max_room_listing_keys) {
+				room.listing.erase(entry);
+				SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::BadRoomData, msg.key });
+				return;
+			}
+			if (!inserted) {
+				if (entry->second == msg.value)
+					return; // unchanged, nothing to announce
+				entry->second = msg.value;
+			}
+		}
+
+		SendToMany(room.members, Proto::RoomListingChanged{ msg.key, msg.value });
+	}
+
+	// The public face of a room: its code, how full it is, whether a password
+	// stands in the way, and its listing slots. Everything else, the room data
+	// and the password included, stays server-side.
+	static Proto::RoomInfo DescribeRoom(const Room& room)
+	{
+		return { room.id, (uint32_t)room.members.size(), !room.password.empty(), room.listing };
+	}
+
+	// Filters run against the listing slots, never the room data: a value the
+	// host did not put in a slot is unsearchable, not just unpublished.
+	static bool MatchesFilter(const std::map<std::string, std::string>& listing, const Proto::RoomFilter& filter)
+	{
+		auto it = listing.find(filter.key);
+		const std::string* value = it == listing.end() ? nullptr : &it->second;
+
+		switch (filter.op) {
+		case Proto::RoomFilterOp::Exists: return value != nullptr;
+		case Proto::RoomFilterOp::Equals: return value && *value == filter.value;
+		}
+
+		return false; // an op from a newer client
+	}
+
+	static bool ValidListRooms(const Proto::ListRooms& msg)
+	{
+		if (msg.filters.size() > Proto::max_room_list_filters)
+			return false;
+
+		for (const auto& filter : msg.filters) {
+			if (!ValidListingSlot(filter.key, filter.value))
+				return false;
+		}
+
+		return true;
+	}
+
+	void Server::HandleListRooms(const std::shared_ptr<Connection>& conn, const Proto::ListRooms& msg)
+	{
+		// the cooldown comes first so malformed queries cost the same as good ones
+		auto now = std::chrono::steady_clock::now();
+		if (now - conn->last_list < std::chrono::milliseconds(_config.room_list_cooldown_ms)) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::RateLimited, {} });
+			return;
+		}
+		conn->last_list = now;
+
+		if (!ValidListRooms(msg)) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::BadRoomData, {} });
+			return;
+		}
+
+		Proto::RoomList list;
+
+		for (const auto& [code, room] : _rooms) {
+			if (!room.listed || !room.open) // a room nobody can join is not worth browsing
+				continue;
+
+			// filter first: a room that misses never pays for its own copy
+			if (!std::ranges::all_of(msg.filters, [&](const Proto::RoomFilter& filter) { return MatchesFilter(room.listing, filter); }))
+				continue;
+
+			if (list.rooms.size() >= Proto::max_room_list_entries) {
+				list.truncated = true; // the client narrows its filters and asks again
+				break;
+			}
+
+			list.rooms.push_back(DescribeRoom(room));
+		}
+
+		spdlog::debug("Client {} listed {} rooms{}", conn->id, list.rooms.size(), list.truncated ? " (truncated)" : "");
+		SendTo(conn->id, list);
 	}
 
 	void Server::LeaveRoom(const std::shared_ptr<Connection>& conn)
