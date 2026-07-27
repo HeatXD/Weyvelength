@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <string>
 #include <variant>
 #include <vector>
@@ -21,6 +22,7 @@ namespace Weyvelength::Proto {
 		RoomClosed, // the room is not joinable right now
 		BadPassword, // wrong password on join, or an over-long one on set
 		Banned, // the host has barred this client from the room
+		RateLimited, // asked again too soon; retry later
 	};
 
 	struct CreateRoom {}; // client -> server: create a room and join it
@@ -81,6 +83,52 @@ namespace Weyvelength::Proto {
 		bool passworded = false;
 	};
 
+	// Rooms are reachable by code only until the host opts in here. Listing is
+	// off by default so a room code stays the secret it is today.
+	struct SetRoomListed { bool listed = false; }; // client -> server: host-only, publish the room in the room list
+	struct RoomListedChanged { bool listed = false; }; // server -> client: the room's listing changed
+
+	// The room's shop window: a handful of slots, separate from room data, that
+	// non-members can read and filter on. Room data never leaves the room, so
+	// nothing is published by accident; the cost is writing a value twice when
+	// members and browsers both need it.
+	struct SetRoomListing { // client -> server: host-only, set one listing slot; empty value clears it
+		std::string key;
+		std::string value;
+	};
+
+	struct RoomListingChanged { // server -> client: one listing slot changed; empty value means cleared
+		std::string key;
+		std::string value;
+	};
+
+	enum class RoomFilterOp : uint8_t {
+		Exists, // the key is published at all; value ignored
+		Equals,
+	};
+
+	struct RoomFilter {
+		std::string key;
+		RoomFilterOp op{};
+		std::string value;
+	};
+
+	// client -> server: browse listed rooms. Every filter has to match, and they
+	// only ever see the listing slots: nothing else is searchable.
+	struct ListRooms { std::vector<RoomFilter> filters; };
+
+	struct RoomInfo { // one listed room; the password is never included, only the flag
+		std::string id;
+		uint32_t members = 0;
+		bool passworded = false;
+		std::map<std::string, std::string> listing;
+	};
+
+	struct RoomList { // server -> client: the reply to ListRooms
+		std::vector<RoomInfo> rooms;
+		bool truncated = false; // more rooms matched than fit; narrow the filters
+	};
+
 	enum class P2PSignalKind : uint8_t {
 		Description,
 		Candidate,
@@ -112,7 +160,7 @@ namespace Weyvelength::Proto {
 	using ServerMessage = std::variant<Heartbeat, AssignClientId, AssignRoomId, CreateRoom, JoinRoom, RoomError, RoomChat,
 		LeaveRoom, PeerJoined, PeerLeft, HostChanged, SetRoomData, RoomDataChanged, SetMemberData, MemberDataChanged,
 		KickMember, TransferHost, SetRoomJoinable, SetRoomPassword, KickedByHost, RoomAccessChanged, BanMember, BannedByHost,
-		P2PSignal, IceServers>;
+		P2PSignal, IceServers, SetRoomListed, RoomListedChanged, SetRoomListing, RoomListingChanged, ListRooms, RoomList>;
 
 	// Opaque bytes, one datagram per message; the app defines its own encoding.
 	using P2PMessage = std::vector<std::byte>;
@@ -127,4 +175,16 @@ namespace Weyvelength::Proto {
 	constexpr uint32_t max_room_data_keys = 64;
 	constexpr uint32_t max_member_data_keys = 16;
 	constexpr uint32_t max_room_password = 64;
+
+	// Room listing. The slots are deliberately small: a browser shows a line per
+	// room, and a reply carries dozens of them under one reassembly cap.
+	constexpr uint32_t max_room_listing_keys = 5;
+	constexpr uint32_t max_room_listing_key = 32;
+	constexpr uint32_t max_room_listing_value = 128;
+	constexpr uint32_t max_room_list_filters = 4;
+
+	// Rooms in one reply. Small enough that even a reply full of maxed-out
+	// listings fits the reassembly cap, so the server needs no byte budget:
+	// it counts entries and stops. More rooms than this sets RoomList::truncated.
+	constexpr uint32_t max_room_list_entries = 16;
 }

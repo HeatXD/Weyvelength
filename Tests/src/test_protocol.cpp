@@ -20,7 +20,7 @@ using namespace Weyvelength;
 // The wire encodes a message as its variant index, so the order below IS the
 // protocol. These pins turn the append-only comment in protocol.h into a
 // compile error: inserting or reordering an alternative fails right here.
-static_assert(std::variant_size_v<Proto::ServerMessage> == 25);
+static_assert(std::variant_size_v<Proto::ServerMessage> == 31);
 static_assert(std::is_same_v<std::variant_alternative_t<0, Proto::ServerMessage>, Proto::Heartbeat>);
 static_assert(std::is_same_v<std::variant_alternative_t<1, Proto::ServerMessage>, Proto::AssignClientId>);
 static_assert(std::is_same_v<std::variant_alternative_t<2, Proto::ServerMessage>, Proto::AssignRoomId>);
@@ -46,6 +46,12 @@ static_assert(std::is_same_v<std::variant_alternative_t<21, Proto::ServerMessage
 static_assert(std::is_same_v<std::variant_alternative_t<22, Proto::ServerMessage>, Proto::BannedByHost>);
 static_assert(std::is_same_v<std::variant_alternative_t<23, Proto::ServerMessage>, Proto::P2PSignal>);
 static_assert(std::is_same_v<std::variant_alternative_t<24, Proto::ServerMessage>, Proto::IceServers>);
+static_assert(std::is_same_v<std::variant_alternative_t<25, Proto::ServerMessage>, Proto::SetRoomListed>);
+static_assert(std::is_same_v<std::variant_alternative_t<26, Proto::ServerMessage>, Proto::RoomListedChanged>);
+static_assert(std::is_same_v<std::variant_alternative_t<27, Proto::ServerMessage>, Proto::SetRoomListing>);
+static_assert(std::is_same_v<std::variant_alternative_t<28, Proto::ServerMessage>, Proto::RoomListingChanged>);
+static_assert(std::is_same_v<std::variant_alternative_t<29, Proto::ServerMessage>, Proto::ListRooms>);
+static_assert(std::is_same_v<std::variant_alternative_t<30, Proto::ServerMessage>, Proto::RoomList>);
 
 // Same idea for the error enum: the values are wire bytes, append only.
 static_assert((uint8_t)Proto::RoomErrorCode::AlreadyInRoom == 0);
@@ -57,11 +63,25 @@ static_assert((uint8_t)Proto::RoomErrorCode::NoSuchMember == 5);
 static_assert((uint8_t)Proto::RoomErrorCode::RoomClosed == 6);
 static_assert((uint8_t)Proto::RoomErrorCode::BadPassword == 7);
 static_assert((uint8_t)Proto::RoomErrorCode::Banned == 8);
+static_assert((uint8_t)Proto::RoomErrorCode::RateLimited == 9);
 
 // And the p2p signal kinds.
 static_assert((uint8_t)Proto::P2PSignalKind::Description == 0);
 static_assert((uint8_t)Proto::P2PSignalKind::Candidate == 1);
 static_assert((uint8_t)Proto::P2PSignalKind::GatheringDone == 2);
+
+// And the room list filter ops.
+static_assert((uint8_t)Proto::RoomFilterOp::Exists == 0);
+static_assert((uint8_t)Proto::RoomFilterOp::Equals == 1);
+
+// The entry cap is the whole size story: a reply of that many maxed-out rooms
+// still fits reassembly, so the server just counts entries. Per room the wire
+// carries a length-prefixed id, the member count, the password flag, the slot
+// count, then a length-prefixed key and value per slot. Room ids are assumed
+// to stay well under 64 bytes, which the default 8-character code does easily.
+constexpr size_t worst_room_bytes = 13 + 64
+	+ Proto::max_room_listing_keys * (8 + Proto::max_room_listing_key + Proto::max_room_listing_value);
+static_assert(Proto::max_room_list_entries * worst_room_bytes < Proto::max_reassembled_size);
 
 namespace {
 	// Frames a message, then walks the fragment stream and reassembles it the
