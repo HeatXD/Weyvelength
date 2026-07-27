@@ -40,7 +40,7 @@ namespace Weyvelength::Marshal {
 		return index < rooms.size() ? &rooms[index] : nullptr;
 	}
 
-	// The C filter array as the protocol's own; a null array is no filters at all.
+	// null array = no filters
 	inline std::vector<Proto::RoomFilter> Filters(const WeyveRoomFilter* filters, uint32_t count)
 	{
 		std::vector<Proto::RoomFilter> out;
@@ -143,11 +143,9 @@ namespace Weyvelength::Marshal {
 			out->data.room_listing.value_len = (uint32_t)listing->value.size();
 		}
 		else if (auto* list = std::get_if<Proto::RoomList>(&msg)) {
-			// the rooms themselves come from the client's cache, not this event:
-			// they outlive it, and no union member could carry them anyway
+			// the rooms come from the client's cache; no union member could carry them
 			out->type = WEYVE_EVENT_ROOM_LIST;
 			out->data.room_list.count = (uint32_t)list->rooms.size();
-			out->data.room_list.truncated = list->truncated;
 		}
 		else {
 			return false; // a client->server variant we never receive

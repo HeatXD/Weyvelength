@@ -35,7 +35,7 @@ namespace Weyvelength {
 		std::deque<std::vector<std::byte>> out; // outbound queue; WriteLoop is the sole writer
 		asio::steady_timer wake; // cancel() signals "out has work"
 		bool closing = false;
-		std::chrono::steady_clock::time_point last_list{}; // last ListRooms; epoch = never asked
+		std::chrono::steady_clock::time_point last_list{}; // epoch = never asked
 
 		Connection(uint32_t id, asio::ip::tcp::socket socket)
 			: id(id), socket(std::move(socket)), wake(this->socket.get_executor()) {
@@ -53,8 +53,8 @@ namespace Weyvelength {
 		bool open = true; // joinable right now?
 		std::string password; // empty = none; checked on join, never sent to clients
 		std::vector<uint32_t> banned_members; // ids barred from joining; checked on join
-		bool listed = false; // published in the room list once the host opts in
-		std::map<std::string, std::string> listing; // the slots non-members can read and filter on
+		bool listed = false;
+		std::map<std::string, std::string> listing; // what non-members can read and filter on
 	};
 
 	struct Server {

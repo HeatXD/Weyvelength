@@ -113,11 +113,11 @@ static void PrintRoomInfo(WeyveClient* client)
 static void PrintRoomList(WeyveClient* client)
 {
 	uint32_t count = weyve_room_list_count(client);
-	std::cout << count << " room(s)" << (weyve_room_list_truncated(client) ? ", more matched than fit\n" : "\n");
+	std::cout << count << " room(s)\n";
 
 	for (uint32_t i = 0; i < count; i++) {
 		uint32_t id_len = 0;
-		const char* id = weyve_room_list_id(client, i, &id_len); // the call has to run before id_len is read
+		const char* id = weyve_room_list_id(client, i, &id_len);
 		std::cout << "  " << std::string(id, id_len);
 		std::cout << " (" << weyve_room_list_members(client, i) << " in" << (weyve_room_list_passworded(client, i) ? ", password" : "") << ")";
 
@@ -163,8 +163,7 @@ static void SendP2PCommand(WeyveClient* client, const std::string& args)
 		std::cout << "p2p send to client " << id << " failed\n";
 }
 
-// "KEY VALUE" as its two halves; the value may contain spaces. False when
-// there is no key or no value, and the caller prints its own usage line.
+// "KEY VALUE" split in two; the value may contain spaces.
 static bool SplitKeyValue(const std::string& args, std::string& key, std::string& value)
 {
 	size_t space = args.find(' ');

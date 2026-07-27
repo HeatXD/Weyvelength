@@ -66,15 +66,13 @@ namespace Weyvelength {
 
 		bool RoomJoinable() const; // can others join right now?
 		bool RoomPassworded() const; // the flag only; the password itself never reaches clients
-		bool RoomListed() const; // is the room published in the room list?
+		bool RoomListed() const;
 
 		const std::map<std::string, std::string>& RoomListing() const; // what browsers see of our room
 		const std::string* RoomListing(const std::string& key) const; // null if the slot is empty
 
-		// The last ListRooms reply. Browse results, not room state: they outlive
-		// joining and leaving, and only another ListRooms replaces them.
+		// Browse results, not room state: they outlive joining and leaving.
 		const std::vector<Proto::RoomInfo>& RoomList() const;
-		bool RoomListTruncated() const; // more rooms matched than fit in the reply
 
 		const std::vector<uint32_t>& Members() const; // everyone in the room, ourselves included
 		const std::map<std::string, std::string>& RoomData() const;
@@ -122,8 +120,7 @@ namespace Weyvelength {
 		bool _room_passworded = false;
 		bool _room_listed = false;
 		std::map<std::string, std::string> _listing;
-		std::vector<Proto::RoomInfo> _room_list; // browse results; kept across joins and leaves
-		bool _room_list_truncated = false;
+		std::vector<Proto::RoomInfo> _room_list;
 		std::vector<uint32_t> _members;
 		std::map<std::string, std::string> _data;
 		std::map<uint32_t, std::map<std::string, std::string>> _member_data;

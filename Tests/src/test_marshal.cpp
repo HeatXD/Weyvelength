@@ -151,16 +151,14 @@ TEST_CASE("room listing notices map to their events")
 	CHECK(e.data.room_listing.value_len == 0);
 
 	// The reply event is a summary; the rooms themselves live in the client cache.
-	Proto::ServerMessage list = Proto::RoomList{ { { "VY4C3NB9", 3, true, { { "mode", "ranked" } } } }, true };
+	Proto::ServerMessage list = Proto::RoomList{ { { "VY4C3NB9", 3, true, { { "mode", "ranked" } } } } };
 	REQUIRE(Marshal::FillEvent(list, &e));
 	CHECK(e.type == WEYVE_EVENT_ROOM_LIST);
 	CHECK(e.data.room_list.count == 1);
-	CHECK(e.data.room_list.truncated == true);
 
 	Proto::ServerMessage empty = Proto::RoomList{};
 	REQUIRE(Marshal::FillEvent(empty, &e));
 	CHECK(e.data.room_list.count == 0);
-	CHECK(e.data.room_list.truncated == false);
 }
 
 TEST_CASE("client->server and transport variants are not surfaced")

@@ -83,15 +83,12 @@ namespace Weyvelength::Proto {
 		bool passworded = false;
 	};
 
-	// Rooms are reachable by code only until the host opts in here. Listing is
-	// off by default so a room code stays the secret it is today.
+	// Off by default, so a room code stays the secret it is today.
 	struct SetRoomListed { bool listed = false; }; // client -> server: host-only, publish the room in the room list
-	struct RoomListedChanged { bool listed = false; }; // server -> client: the room's listing changed
+	struct RoomListedChanged { bool listed = false; }; // server -> client
 
-	// The room's shop window: a handful of slots, separate from room data, that
-	// non-members can read and filter on. Room data never leaves the room, so
-	// nothing is published by accident; the cost is writing a value twice when
-	// members and browsers both need it.
+	// The room's shop window: slots non-members can read and filter on. Kept
+	// apart from room data, so nothing is published by accident.
 	struct SetRoomListing { // client -> server: host-only, set one listing slot; empty value clears it
 		std::string key;
 		std::string value;
@@ -113,8 +110,7 @@ namespace Weyvelength::Proto {
 		std::string value;
 	};
 
-	// client -> server: browse listed rooms. Every filter has to match, and they
-	// only ever see the listing slots: nothing else is searchable.
+	// client -> server: browse listed rooms; every filter has to match
 	struct ListRooms { std::vector<RoomFilter> filters; };
 
 	struct RoomInfo { // one listed room; the password is never included, only the flag
@@ -124,9 +120,8 @@ namespace Weyvelength::Proto {
 		std::map<std::string, std::string> listing;
 	};
 
-	struct RoomList { // server -> client: the reply to ListRooms
+	struct RoomList { // server -> client: the reply to ListRooms, every match
 		std::vector<RoomInfo> rooms;
-		bool truncated = false; // more rooms matched than fit; narrow the filters
 	};
 
 	enum class P2PSignalKind : uint8_t {
@@ -176,15 +171,9 @@ namespace Weyvelength::Proto {
 	constexpr uint32_t max_member_data_keys = 16;
 	constexpr uint32_t max_room_password = 64;
 
-	// Room listing. The slots are deliberately small: a browser shows a line per
-	// room, and a reply carries dozens of them under one reassembly cap.
+	// Listing slots are small: a browser shows one line per room.
 	constexpr uint32_t max_room_listing_keys = 5;
 	constexpr uint32_t max_room_listing_key = 32;
 	constexpr uint32_t max_room_listing_value = 128;
 	constexpr uint32_t max_room_list_filters = 4;
-
-	// Rooms in one reply. Small enough that even a reply full of maxed-out
-	// listings fits the reassembly cap, so the server needs no byte budget:
-	// it counts entries and stops. More rooms than this sets RoomList::truncated.
-	constexpr uint32_t max_room_list_entries = 16;
 }

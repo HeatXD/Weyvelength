@@ -214,11 +214,6 @@ namespace Weyvelength {
 		return _room_list;
 	}
 
-	bool Client::RoomListTruncated() const
-	{
-		return _room_list_truncated;
-	}
-
 	const std::vector<uint32_t>& Client::Members() const
 	{
 		return _members;
@@ -408,7 +403,6 @@ namespace Weyvelength {
 		}
 		else if (auto* list = std::get_if<Proto::RoomList>(&msg)) {
 			_room_list = list->rooms; // copied, not moved: the event still carries it to Next()
-			_room_list_truncated = list->truncated;
 		}
 	}
 

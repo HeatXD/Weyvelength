@@ -40,7 +40,7 @@ typedef enum WeyveRoomError {
 	WEYVE_ROOM_ERROR_RATE_LIMITED, // asked again too soon; retry later
 } WeyveRoomError;
 
-// Mirrors Proto::RoomFilterOp; how one weyve_list_rooms filter compares.
+// Mirrors Proto::RoomFilterOp.
 typedef enum WeyveRoomFilterOp {
 	WEYVE_FILTER_EXISTS, // the key is published at all; value ignored
 	WEYVE_FILTER_EQUALS,
@@ -69,7 +69,7 @@ typedef enum WeyveEventType {
 	WEYVE_EVENT_KICKED, // the host removed you from the room
 	WEYVE_EVENT_BANNED, // the host removed you and barred you from rejoining
 	WEYVE_EVENT_ROOM_ACCESS_CHANGED, // the room's joinability/password flag changed
-	WEYVE_EVENT_ROOM_LISTED_CHANGED, // the room's listing was turned on or off
+	WEYVE_EVENT_ROOM_LISTED_CHANGED,
 	WEYVE_EVENT_ROOM_LISTING_CHANGED, // one listing slot; empty value means cleared
 	WEYVE_EVENT_ROOM_LIST, // a weyve_list_rooms reply landed; read it with the accessors below
 } WeyveEventType;
@@ -145,7 +145,6 @@ typedef struct WeyveEvent {
 
 		struct { // WEYVE_EVENT_ROOM_LIST
 			uint32_t count;
-			bool truncated;
 		} room_list;
 	} data;
 } WeyveEvent;
@@ -173,17 +172,16 @@ WEYVE_API bool weyve_transfer_host(WeyveClient* client, uint32_t id); // host-on
 
 WEYVE_API bool weyve_set_room_joinable(WeyveClient* client, bool open); // host-only
 WEYVE_API bool weyve_set_room_password(WeyveClient* client, const char* password); // host-only; null or "" clears it
-WEYVE_API bool weyve_set_room_listed(WeyveClient* client, bool listed); // host-only; off until you ask for it
+WEYVE_API bool weyve_set_room_listed(WeyveClient* client, bool listed); // host-only
 
-// The room's listing slots: a few short key/value pairs that non-members can
-// read and filter on. Separate from room data, which never leaves the room.
+// Listing slots: short pairs non-members can read and filter on, kept apart
+// from room data, which never leaves the room.
 WEYVE_API bool weyve_set_room_listing(WeyveClient* client, const char* key, const char* value); // host-only
 WEYVE_API bool weyve_delete_room_listing(WeyveClient* client, const char* key); // host-only
 
-// Browse listed rooms. Every filter has to match; pass null/0 for all of them.
-// The reply arrives as WEYVE_EVENT_ROOM_LIST, read through the accessors at the
-// bottom of this header. Asking faster than once a second gets you a
-// WEYVE_ROOM_ERROR_RATE_LIMITED instead of a list.
+// Browse listed rooms; every filter has to match, null/0 means all of them.
+// The reply arrives as WEYVE_EVENT_ROOM_LIST, read with the accessors below.
+// Asking more than once a second gets WEYVE_ROOM_ERROR_RATE_LIMITED instead.
 WEYVE_API bool weyve_list_rooms(WeyveClient* client, const WeyveRoomFilter* filters, uint32_t count);
 
 WEYVE_API bool weyve_send_chat(WeyveClient* client, const char* text);
@@ -208,7 +206,7 @@ WEYVE_API uint32_t weyve_host_id(const WeyveClient* client); // 0 until a room i
 WEYVE_API bool weyve_is_host(const WeyveClient* client);
 WEYVE_API bool weyve_room_joinable(const WeyveClient* client);
 WEYVE_API bool weyve_room_passworded(const WeyveClient* client); // the flag only; the password never reaches clients
-WEYVE_API bool weyve_room_listed(const WeyveClient* client); // is the room published in the room list?
+WEYVE_API bool weyve_room_listed(const WeyveClient* client);
 
 // Current room id as a byte range; len 0 means not in a room. Borrowed, valid until the next weyve_poll.
 WEYVE_API const char* weyve_room_id(const WeyveClient* client, uint32_t* len);
@@ -233,18 +231,16 @@ WEYVE_API uint32_t weyve_room_listing_count(const WeyveClient* client);
 WEYVE_API const char* weyve_room_listing_key_at(const WeyveClient* client, uint32_t index, uint32_t* key_len);
 
 // --- browsed rooms ---
-// The last weyve_list_rooms reply, rooms indexed 0..weyve_room_list_count.
-// Unlike the room getters above these survive joining and leaving; only the
-// next reply replaces them. Borrowed, valid until the next weyve_poll.
+// The last weyve_list_rooms reply, indexed 0..weyve_room_list_count. Survives
+// joining and leaving; only the next reply replaces it. Borrowed until weyve_poll.
 
 WEYVE_API uint32_t weyve_room_list_count(const WeyveClient* client);
-WEYVE_API bool weyve_room_list_truncated(const WeyveClient* client); // more rooms matched than fit; narrow the filters
 
 WEYVE_API const char* weyve_room_list_id(const WeyveClient* client, uint32_t room, uint32_t* len); // the code to join with
 WEYVE_API uint32_t weyve_room_list_members(const WeyveClient* client, uint32_t room);
 WEYVE_API bool weyve_room_list_passworded(const WeyveClient* client, uint32_t room);
 
-// Listing slots of one browsed room; all a non-member ever sees of it.
+// All a non-member sees of a browsed room.
 WEYVE_API const char* weyve_room_list_listing(const WeyveClient* client, uint32_t room, const char* key, uint32_t* value_len);
 WEYVE_API uint32_t weyve_room_list_listing_count(const WeyveClient* client, uint32_t room);
 WEYVE_API const char* weyve_room_list_listing_key_at(const WeyveClient* client, uint32_t room, uint32_t index, uint32_t* key_len);

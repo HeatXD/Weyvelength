@@ -74,14 +74,11 @@ static_assert((uint8_t)Proto::P2PSignalKind::GatheringDone == 2);
 static_assert((uint8_t)Proto::RoomFilterOp::Exists == 0);
 static_assert((uint8_t)Proto::RoomFilterOp::Equals == 1);
 
-// The entry cap is the whole size story: a reply of that many maxed-out rooms
-// still fits reassembly, so the server just counts entries. Per room the wire
-// carries a length-prefixed id, the member count, the password flag, the slot
-// count, then a length-prefixed key and value per slot. Room ids are assumed
-// to stay well under 64 bytes, which the default 8-character code does easily.
+// A reply carries every match, so the reassembly cap is the only ceiling.
+// Pins roughly how many rooms fit, assuming ids stay under 64 bytes.
 constexpr size_t worst_room_bytes = 13 + 64
 	+ Proto::max_room_listing_keys * (8 + Proto::max_room_listing_key + Proto::max_room_listing_value);
-static_assert(Proto::max_room_list_entries * worst_room_bytes < Proto::max_reassembled_size);
+static_assert(Proto::max_reassembled_size / worst_room_bytes >= 60);
 
 namespace {
 	// Frames a message, then walks the fragment stream and reassembles it the
@@ -211,11 +208,10 @@ TEST_CASE("room listing requests and notices round trip")
 TEST_CASE("room lists round trip with their listing slots")
 {
 	Proto::RoomList list{ { { "VY4C3NB9", 3, true, { { "mode", "ranked" }, { "stage", "training" } } },
-							{ "ZK7QD2XM", 1, false, {} } }, true };
+							{ "ZK7QD2XM", 1, false, {} } } };
 
 	auto out = std::get<Proto::RoomList>(RoundTrip(list));
 	REQUIRE(out.rooms.size() == 2);
-	CHECK(out.truncated == true);
 
 	CHECK(out.rooms[0].id == "VY4C3NB9");
 	CHECK(out.rooms[0].members == 3);
@@ -231,25 +227,24 @@ TEST_CASE("room lists round trip with their listing slots")
 	CHECK(std::get<Proto::RoomList>(RoundTrip(Proto::RoomList{})).rooms.empty()); // nothing matched
 }
 
-TEST_CASE("a full reply of maxed-out rooms survives reassembly")
+TEST_CASE("a reply of maxed-out rooms fits what a peer will reassemble")
 {
-	// What the static_assert above claims, against the real encoder: fill a
-	// reply to the entry cap with the biggest rooms the server can describe.
+	// the static_assert above, against the real encoder
 	Proto::RoomInfo entry{ std::string(64, 'R'), 0xFFFFFFFF, true, {} };
 	for (uint32_t i = 0; i < Proto::max_room_listing_keys; i++) {
 		entry.listing.emplace(std::to_string(i) + std::string(Proto::max_room_listing_key - 1, 'k'),
 			std::string(Proto::max_room_listing_value, 'v'));
 	}
 
-	Proto::RoomList list{ std::vector<Proto::RoomInfo>(Proto::max_room_list_entries, entry), true };
+	constexpr size_t rooms = Proto::max_reassembled_size / worst_room_bytes;
+	Proto::RoomList list{ std::vector<Proto::RoomInfo>(rooms, entry) };
 
 	std::vector<std::byte> body;
 	zpp::bits::out{ body }(Proto::ServerMessage{ list }).or_throw();
-	CHECK(body.size() <= Proto::max_reassembled_size); // counting entries is guard enough
+	CHECK(body.size() <= Proto::max_reassembled_size); // the per-room estimate is not an under-count
 
 	auto out = std::get<Proto::RoomList>(RoundTrip(list)); // fragments and comes back whole
-	CHECK(out.rooms.size() == Proto::max_room_list_entries);
-	CHECK(out.truncated == true);
+	CHECK(out.rooms.size() == rooms);
 }
 
 TEST_CASE("p2p signaling round trips")

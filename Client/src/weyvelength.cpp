@@ -274,11 +274,6 @@ uint32_t weyve_room_list_count(const WeyveClient* client)
 	return (uint32_t)client->client.RoomList().size();
 }
 
-bool weyve_room_list_truncated(const WeyveClient* client)
-{
-	return client->client.RoomListTruncated();
-}
-
 const char* weyve_room_list_id(const WeyveClient* client, uint32_t room, uint32_t* len)
 {
 	const auto* info = Marshal::RoomAt(client->client.RoomList(), room);

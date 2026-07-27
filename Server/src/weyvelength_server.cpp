@@ -560,14 +560,12 @@ namespace Weyvelength {
 		spdlog::info("Room {} is now {}", room->id, room->listed ? "listed" : "unlisted");
 	}
 
-	// One slot's bounds, shared by the setter and by the filters matched against it
 	static bool ValidListingSlot(const std::string& key, const std::string& value)
 	{
 		return !key.empty() && key.size() <= Proto::max_room_listing_key && value.size() <= Proto::max_room_listing_value;
 	}
 
-	// Same shape as room data, against the much smaller listing budget. Slots
-	// survive unlisting, so flipping the room back on restores what it showed.
+	// Same shape as room data; slots survive unlisting.
 	void Server::HandleSetRoomListing(const std::shared_ptr<Connection>& conn, const Proto::SetRoomListing& msg)
 	{
 		Room* hosted = HostRoom(conn);
@@ -601,16 +599,13 @@ namespace Weyvelength {
 		SendToMany(room.members, Proto::RoomListingChanged{ msg.key, msg.value });
 	}
 
-	// The public face of a room: its code, how full it is, whether a password
-	// stands in the way, and its listing slots. Everything else, the room data
-	// and the password included, stays server-side.
+	// All a non-member sees; room data and the password stay server-side.
 	static Proto::RoomInfo DescribeRoom(const Room& room)
 	{
 		return { room.id, (uint32_t)room.members.size(), !room.password.empty(), room.listing };
 	}
 
-	// Filters run against the listing slots, never the room data: a value the
-	// host did not put in a slot is unsearchable, not just unpublished.
+	// Slots only: a value not in a slot is unsearchable, not just unpublished.
 	static bool MatchesFilter(const std::map<std::string, std::string>& listing, const Proto::RoomFilter& filter)
 	{
 		auto it = listing.find(filter.key);
@@ -658,19 +653,14 @@ namespace Weyvelength {
 			if (!room.listed || !room.open) // a room nobody can join is not worth browsing
 				continue;
 
-			// filter first: a room that misses never pays for its own copy
+			// filter first: a miss never pays for its own copy
 			if (!std::ranges::all_of(msg.filters, [&](const Proto::RoomFilter& filter) { return MatchesFilter(room.listing, filter); }))
 				continue;
-
-			if (list.rooms.size() >= Proto::max_room_list_entries) {
-				list.truncated = true; // the client narrows its filters and asks again
-				break;
-			}
 
 			list.rooms.push_back(DescribeRoom(room));
 		}
 
-		spdlog::debug("Client {} listed {} rooms{}", conn->id, list.rooms.size(), list.truncated ? " (truncated)" : "");
+		spdlog::debug("Client {} listed {} rooms", conn->id, list.rooms.size());
 		SendTo(conn->id, list);
 	}
 
