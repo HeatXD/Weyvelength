@@ -83,7 +83,8 @@ static void PrintRoomInfo(WeyveClient* client)
 
 	for (uint32_t i = 0, keys = weyve_room_data_count(client); i < keys; i++) {
 		uint32_t key_len = 0, value_len = 0;
-		std::string key(weyve_room_data_key_at(client, i, &key_len), key_len);
+		const char* key_bytes = weyve_room_data_key_at(client, i, &key_len); // the call has to run before key_len is read
+		std::string key(key_bytes, key_len);
 		const char* value = weyve_room_data(client, key.c_str(), &value_len);
 		std::cout << "  " << key << " = " << std::string(value, value_len) << "\n";
 	}
@@ -92,7 +93,8 @@ static void PrintRoomInfo(WeyveClient* client)
 		uint32_t id = members[i];
 		for (uint32_t j = 0, keys = weyve_member_data_count(client, id); j < keys; j++) {
 			uint32_t key_len = 0, value_len = 0;
-			std::string key(weyve_member_data_key_at(client, id, j, &key_len), key_len);
+			const char* key_bytes = weyve_member_data_key_at(client, id, j, &key_len);
+			std::string key(key_bytes, key_len);
 			const char* value = weyve_member_data(client, id, key.c_str(), &value_len);
 			std::cout << "  client " << id << ": " << key << " = " << std::string(value, value_len) << "\n";
 		}
