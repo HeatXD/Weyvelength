@@ -62,16 +62,58 @@ typedef enum WeyveEventType {
 typedef struct WeyveEvent {
 	WeyveEventType type;
 	union {
-		struct { uint64_t timestamp; } heartbeat; // WEYVE_EVENT_HEARTBEAT
-		struct { const char* id; uint32_t id_len; } room_assigned; // WEYVE_EVENT_ROOM_ID_ASSIGNED
-		struct { WeyveRoomError code; const char* context; uint32_t context_len; } room_error; // WEYVE_EVENT_ROOM_ERROR
-		struct { uint32_t from; const char* text; uint32_t text_len; } chat; // WEYVE_EVENT_CHAT
-		struct { uint32_t id; } peer_joined; // WEYVE_EVENT_PEER_JOINED
-		struct { uint32_t id; } peer_left; // WEYVE_EVENT_PEER_LEFT
-		struct { uint32_t id; } host_changed; // WEYVE_EVENT_HOST_CHANGED
-		struct { const char* key; uint32_t key_len; const char* value; uint32_t value_len; } room_data; // WEYVE_EVENT_ROOM_DATA_CHANGED
-		struct { uint32_t id; const char* key; uint32_t key_len; const char* value; uint32_t value_len; } member_data; // WEYVE_EVENT_MEMBER_DATA_CHANGED
-		struct { bool open; bool passworded; } room_access; // WEYVE_EVENT_ROOM_ACCESS_CHANGED
+		struct { // WEYVE_EVENT_HEARTBEAT
+			uint64_t timestamp;
+		} heartbeat;
+
+		struct { // WEYVE_EVENT_ROOM_ID_ASSIGNED
+			const char* id;
+			uint32_t id_len;
+		} room_assigned;
+
+		struct { // WEYVE_EVENT_ROOM_ERROR
+			WeyveRoomError code;
+			const char* context;
+			uint32_t context_len;
+		} room_error;
+
+		struct { // WEYVE_EVENT_CHAT
+			uint32_t from;
+			const char* text;
+			uint32_t text_len;
+		} chat;
+
+		struct { // WEYVE_EVENT_PEER_JOINED
+			uint32_t id;
+		} peer_joined;
+
+		struct { // WEYVE_EVENT_PEER_LEFT
+			uint32_t id;
+		} peer_left;
+
+		struct { // WEYVE_EVENT_HOST_CHANGED
+			uint32_t id;
+		} host_changed;
+
+		struct { // WEYVE_EVENT_ROOM_DATA_CHANGED
+			const char* key;
+			uint32_t key_len;
+			const char* value;
+			uint32_t value_len;
+		} room_data;
+
+		struct { // WEYVE_EVENT_MEMBER_DATA_CHANGED
+			uint32_t id;
+			const char* key;
+			uint32_t key_len;
+			const char* value;
+			uint32_t value_len;
+		} member_data;
+
+		struct { // WEYVE_EVENT_ROOM_ACCESS_CHANGED
+			bool open;
+			bool passworded;
+		} room_access;
 	} data;
 } WeyveEvent;
 
