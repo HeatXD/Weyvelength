@@ -70,7 +70,8 @@ static std::string RoomId(WeyveClient* client)
 static void PrintRoomInfo(WeyveClient* client)
 {
 	std::cout << "Room " << RoomId(client) << ", host " << weyve_host_id(client) << (weyve_is_host(client) ? " (you)" : "") << "\n";
-	std::cout << (weyve_room_joinable(client) ? "Open to join" : "Closed") << (weyve_room_passworded(client) ? ", password required" : "") << "\n";
+	std::cout << (weyve_room_joinable(client) ? "Open to join" : "Closed") << (weyve_room_passworded(client) ? ", password required" : "");
+	std::cout << (weyve_room_listed(client) ? ", listed" : ", unlisted") << "\n";
 
 	uint32_t count = 0;
 	const uint32_t* members = weyve_members(client, &count);
@@ -89,6 +90,14 @@ static void PrintRoomInfo(WeyveClient* client)
 		std::cout << "  " << key << " = " << std::string(value, value_len) << "\n";
 	}
 
+	for (uint32_t i = 0, keys = weyve_room_listing_count(client); i < keys; i++) {
+		uint32_t key_len = 0, value_len = 0;
+		const char* key_bytes = weyve_room_listing_key_at(client, i, &key_len);
+		std::string key(key_bytes, key_len);
+		const char* value = weyve_room_listing(client, key.c_str(), &value_len);
+		std::cout << "  listing: " << key << " = " << std::string(value, value_len) << "\n";
+	}
+
 	for (uint32_t i = 0; i < count; i++) {
 		uint32_t id = members[i];
 		for (uint32_t j = 0, keys = weyve_member_data_count(client, id); j < keys; j++) {
@@ -99,6 +108,44 @@ static void PrintRoomInfo(WeyveClient* client)
 			std::cout << "  client " << id << ": " << key << " = " << std::string(value, value_len) << "\n";
 		}
 	}
+}
+
+static void PrintRoomList(WeyveClient* client)
+{
+	uint32_t count = weyve_room_list_count(client);
+	std::cout << count << " room(s)" << (weyve_room_list_truncated(client) ? ", more matched than fit\n" : "\n");
+
+	for (uint32_t i = 0; i < count; i++) {
+		uint32_t id_len = 0;
+		const char* id = weyve_room_list_id(client, i, &id_len); // the call has to run before id_len is read
+		std::cout << "  " << std::string(id, id_len);
+		std::cout << " (" << weyve_room_list_members(client, i) << " in" << (weyve_room_list_passworded(client, i) ? ", password" : "") << ")";
+
+		for (uint32_t j = 0, keys = weyve_room_list_listing_count(client, i); j < keys; j++) {
+			uint32_t key_len = 0, value_len = 0;
+			const char* key_bytes = weyve_room_list_listing_key_at(client, i, j, &key_len);
+			std::string key(key_bytes, key_len);
+			const char* value = weyve_room_list_listing(client, i, key.c_str(), &value_len);
+			std::cout << " " << key << "=" << std::string(value, value_len);
+		}
+		std::cout << "\n";
+	}
+}
+
+// "/list", or "/list mode ranked" for an equals filter on a listing slot.
+static void SendListCommand(WeyveClient* client, const std::string& args)
+{
+	if (args.empty()) {
+		weyve_list_rooms(client, nullptr, 0);
+		return;
+	}
+
+	size_t space = args.find(' ');
+	std::string key = args.substr(0, space);
+	std::string value = space == std::string::npos ? "" : args.substr(space + 1);
+
+	WeyveRoomFilter filter{ key.c_str(), value.empty() ? WEYVE_FILTER_EXISTS : WEYVE_FILTER_EQUALS, value.c_str() };
+	weyve_list_rooms(client, &filter, 1);
 }
 
 // "/p2p 3 hello"; sends the text bytes to one peer over the mesh.
@@ -116,21 +163,44 @@ static void SendP2PCommand(WeyveClient* client, const std::string& args)
 		std::cout << "p2p send to client " << id << " failed\n";
 }
 
-// "/set KEY VALUE" or "/setme KEY VALUE"; the value may contain spaces.
-static void SendSetCommand(WeyveClient* client, const std::string& args, bool own)
+// "KEY VALUE" as its two halves; the value may contain spaces. False when
+// there is no key or no value, and the caller prints its own usage line.
+static bool SplitKeyValue(const std::string& args, std::string& key, std::string& value)
 {
 	size_t space = args.find(' ');
-	if (space == std::string::npos || space == 0) {
+	if (space == std::string::npos || space == 0)
+		return false;
+
+	key = args.substr(0, space);
+	value = args.substr(space + 1);
+	return true;
+}
+
+// "/set KEY VALUE" or "/setme KEY VALUE".
+static void SendSetCommand(WeyveClient* client, const std::string& args, bool own)
+{
+	std::string key, value;
+	if (!SplitKeyValue(args, key, value)) {
 		std::cout << "usage: " << (own ? "/setme" : "/set") << " KEY VALUE\n";
 		return;
 	}
 
-	std::string key = args.substr(0, space);
-	std::string value = args.substr(space + 1);
 	if (own)
 		weyve_set_member_data(client, key.c_str(), value.c_str());
 	else
 		weyve_set_room_data(client, key.c_str(), value.c_str());
+}
+
+// "/pub KEY VALUE"; fills one listing slot, the part of the room browsers see.
+static void SendPubCommand(WeyveClient* client, const std::string& args)
+{
+	std::string key, value;
+	if (!SplitKeyValue(args, key, value)) {
+		std::cout << "usage: /pub KEY VALUE\n";
+		return;
+	}
+
+	weyve_set_room_listing(client, key.c_str(), value.c_str());
 }
 
 // Ping the server once a second; it replies with a pong.
@@ -175,6 +245,7 @@ static int RunChat(WeyveClient* client, const std::string& code, const std::stri
 				std::cout << "In room " << id << " (join it: clientexample chat " << id << ")\n";
 				std::cout << "Commands: /who, /set KEY VALUE, /del KEY, /setme KEY VALUE, /delme KEY\n";
 				std::cout << "          /open, /close, /pass [PASSWORD], /kick ID, /ban ID, /host ID, /leave\n";
+				std::cout << "          /list [KEY [VALUE]], /listed, /unlisted, /pub KEY VALUE, /unpub KEY\n";
 				std::cout << "          /p2p ID TEXT (direct, over the mesh)\n";
 				break;
 			}
@@ -224,6 +295,20 @@ static int RunChat(WeyveClient* client, const std::string& code, const std::stri
 			case WEYVE_EVENT_ROOM_ACCESS_CHANGED:
 				std::cout << "* room is now " << (event.data.room_access.open ? "open" : "closed") << (event.data.room_access.passworded ? " (password required)" : "") << "\n";
 				break;
+			case WEYVE_EVENT_ROOM_LISTED_CHANGED:
+				std::cout << "* room is now " << (event.data.room_listed.listed ? "listed" : "unlisted") << "\n";
+				break;
+			case WEYVE_EVENT_ROOM_LISTING_CHANGED: {
+				std::string key(event.data.room_listing.key, event.data.room_listing.key_len);
+				if (event.data.room_listing.value_len == 0)
+					std::cout << "* listing: " << key << " cleared\n";
+				else
+					std::cout << "* listing: " << key << " = " << std::string(event.data.room_listing.value, event.data.room_listing.value_len) << "\n";
+				break;
+			}
+			case WEYVE_EVENT_ROOM_LIST:
+				PrintRoomList(client);
+				break;
 			default:
 				break;
 			}
@@ -252,6 +337,18 @@ static int RunChat(WeyveClient* client, const std::string& code, const std::stri
 				SendSetCommand(client, line.substr(5), false);
 			else if (line.rfind("/del ", 0) == 0)
 				weyve_delete_room_data(client, line.substr(5).c_str());
+			else if (line.rfind("/pub ", 0) == 0)
+				SendPubCommand(client, line.substr(5));
+			else if (line.rfind("/unpub ", 0) == 0)
+				weyve_delete_room_listing(client, line.substr(7).c_str());
+			else if (line == "/list")
+				SendListCommand(client, "");
+			else if (line.rfind("/list ", 0) == 0)
+				SendListCommand(client, line.substr(6));
+			else if (line == "/listed")
+				weyve_set_room_listed(client, true);
+			else if (line == "/unlisted")
+				weyve_set_room_listed(client, false);
 			else if (line == "/open")
 				weyve_set_room_joinable(client, true);
 			else if (line == "/close")
