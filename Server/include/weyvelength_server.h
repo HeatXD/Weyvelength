@@ -23,6 +23,7 @@ namespace Weyvelength {
 	struct ServerConfig {
 		uint16_t port = 0;
 		uint32_t room_code_length = 0; // 0 = use the default (8)
+		uint32_t room_list_cooldown_ms = 0; // 0 = use the default (1000)
 		Proto::IceServers ice; // stun/turn handed to every client on connect
 	};
 
@@ -34,6 +35,7 @@ namespace Weyvelength {
 		std::deque<std::vector<std::byte>> out; // outbound queue; WriteLoop is the sole writer
 		asio::steady_timer wake; // cancel() signals "out has work"
 		bool closing = false;
+		std::chrono::steady_clock::time_point last_list{}; // epoch = never asked
 
 		Connection(uint32_t id, asio::ip::tcp::socket socket)
 			: id(id), socket(std::move(socket)), wake(this->socket.get_executor()) {
@@ -51,6 +53,8 @@ namespace Weyvelength {
 		bool open = true; // joinable right now?
 		std::string password; // empty = none; checked on join, never sent to clients
 		std::vector<uint32_t> banned_members; // ids barred from joining; checked on join
+		bool listed = false;
+		std::map<std::string, std::string> listing; // what non-members can read and filter on
 	};
 
 	struct Server {
@@ -76,6 +80,9 @@ namespace Weyvelength {
 		void HandleTransferHost(const std::shared_ptr<Connection>& conn, const Proto::TransferHost& msg);
 		void HandleSetRoomJoinable(const std::shared_ptr<Connection>& conn, const Proto::SetRoomJoinable& msg);
 		void HandleSetRoomPassword(const std::shared_ptr<Connection>& conn, const Proto::SetRoomPassword& msg);
+		void HandleSetRoomListed(const std::shared_ptr<Connection>& conn, const Proto::SetRoomListed& msg);
+		void HandleSetRoomListing(const std::shared_ptr<Connection>& conn, const Proto::SetRoomListing& msg);
+		void HandleListRooms(const std::shared_ptr<Connection>& conn, const Proto::ListRooms& msg);
 
 		void LeaveRoom(const std::shared_ptr<Connection>& conn);
 		Room* HostRoom(const std::shared_ptr<Connection>& conn); // the sender's room if they host it, else null after sending the error

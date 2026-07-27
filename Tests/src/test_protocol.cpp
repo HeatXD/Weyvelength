@@ -20,7 +20,7 @@ using namespace Weyvelength;
 // The wire encodes a message as its variant index, so the order below IS the
 // protocol. These pins turn the append-only comment in protocol.h into a
 // compile error: inserting or reordering an alternative fails right here.
-static_assert(std::variant_size_v<Proto::ServerMessage> == 25);
+static_assert(std::variant_size_v<Proto::ServerMessage> == 31);
 static_assert(std::is_same_v<std::variant_alternative_t<0, Proto::ServerMessage>, Proto::Heartbeat>);
 static_assert(std::is_same_v<std::variant_alternative_t<1, Proto::ServerMessage>, Proto::AssignClientId>);
 static_assert(std::is_same_v<std::variant_alternative_t<2, Proto::ServerMessage>, Proto::AssignRoomId>);
@@ -46,6 +46,12 @@ static_assert(std::is_same_v<std::variant_alternative_t<21, Proto::ServerMessage
 static_assert(std::is_same_v<std::variant_alternative_t<22, Proto::ServerMessage>, Proto::BannedByHost>);
 static_assert(std::is_same_v<std::variant_alternative_t<23, Proto::ServerMessage>, Proto::P2PSignal>);
 static_assert(std::is_same_v<std::variant_alternative_t<24, Proto::ServerMessage>, Proto::IceServers>);
+static_assert(std::is_same_v<std::variant_alternative_t<25, Proto::ServerMessage>, Proto::SetRoomListed>);
+static_assert(std::is_same_v<std::variant_alternative_t<26, Proto::ServerMessage>, Proto::RoomListedChanged>);
+static_assert(std::is_same_v<std::variant_alternative_t<27, Proto::ServerMessage>, Proto::SetRoomListing>);
+static_assert(std::is_same_v<std::variant_alternative_t<28, Proto::ServerMessage>, Proto::RoomListingChanged>);
+static_assert(std::is_same_v<std::variant_alternative_t<29, Proto::ServerMessage>, Proto::ListRooms>);
+static_assert(std::is_same_v<std::variant_alternative_t<30, Proto::ServerMessage>, Proto::RoomList>);
 
 // Same idea for the error enum: the values are wire bytes, append only.
 static_assert((uint8_t)Proto::RoomErrorCode::AlreadyInRoom == 0);
@@ -57,11 +63,22 @@ static_assert((uint8_t)Proto::RoomErrorCode::NoSuchMember == 5);
 static_assert((uint8_t)Proto::RoomErrorCode::RoomClosed == 6);
 static_assert((uint8_t)Proto::RoomErrorCode::BadPassword == 7);
 static_assert((uint8_t)Proto::RoomErrorCode::Banned == 8);
+static_assert((uint8_t)Proto::RoomErrorCode::RateLimited == 9);
 
 // And the p2p signal kinds.
 static_assert((uint8_t)Proto::P2PSignalKind::Description == 0);
 static_assert((uint8_t)Proto::P2PSignalKind::Candidate == 1);
 static_assert((uint8_t)Proto::P2PSignalKind::GatheringDone == 2);
+
+// And the room list filter ops.
+static_assert((uint8_t)Proto::RoomFilterOp::Exists == 0);
+static_assert((uint8_t)Proto::RoomFilterOp::Equals == 1);
+
+// A reply carries every match, so the reassembly cap is the only ceiling.
+// Pins roughly how many rooms fit, assuming ids stay under 64 bytes.
+constexpr size_t worst_room_bytes = 13 + 64
+	+ Proto::max_room_listing_keys * (8 + Proto::max_room_listing_key + Proto::max_room_listing_value);
+static_assert(Proto::max_reassembled_size / worst_room_bytes >= 60);
 
 namespace {
 	// Frames a message, then walks the fragment stream and reassembles it the
@@ -159,6 +176,75 @@ TEST_CASE("room access events round trip")
 	auto access = std::get<Proto::RoomAccessChanged>(RoundTrip(Proto::RoomAccessChanged{ false, true }));
 	CHECK(access.open == false);
 	CHECK(access.passworded == true);
+}
+
+TEST_CASE("room listing requests and notices round trip")
+{
+	CHECK(std::get<Proto::SetRoomListed>(RoundTrip(Proto::SetRoomListed{ true })).listed == true);
+	CHECK(std::get<Proto::RoomListedChanged>(RoundTrip(Proto::RoomListedChanged{ true })).listed == true);
+	CHECK(std::get<Proto::RoomListedChanged>(RoundTrip(Proto::RoomListedChanged{ false })).listed == false);
+
+	auto slot = std::get<Proto::SetRoomListing>(RoundTrip(Proto::SetRoomListing{ "mode", "ranked" }));
+	CHECK(slot.key == "mode");
+	CHECK(slot.value == "ranked");
+
+	auto cleared = std::get<Proto::RoomListingChanged>(RoundTrip(Proto::RoomListingChanged{ "mode", "" }));
+	CHECK(cleared.key == "mode");
+	CHECK(cleared.value.empty()); // empty value = cleared
+
+	Proto::ListRooms query{ { { "mode", Proto::RoomFilterOp::Equals, "ranked" },
+							  { "stage", Proto::RoomFilterOp::Exists, "" } } };
+
+	auto out = std::get<Proto::ListRooms>(RoundTrip(query));
+	REQUIRE(out.filters.size() == 2);
+	CHECK(out.filters[0].key == "mode");
+	CHECK(out.filters[0].op == Proto::RoomFilterOp::Equals);
+	CHECK(out.filters[0].value == "ranked");
+	CHECK(out.filters[1].op == Proto::RoomFilterOp::Exists);
+
+	CHECK(std::get<Proto::ListRooms>(RoundTrip(Proto::ListRooms{})).filters.empty()); // no filters = everything listed
+}
+
+TEST_CASE("room lists round trip with their listing slots")
+{
+	Proto::RoomList list{ { { "VY4C3NB9", 3, true, { { "mode", "ranked" }, { "stage", "training" } } },
+							{ "ZK7QD2XM", 1, false, {} } } };
+
+	auto out = std::get<Proto::RoomList>(RoundTrip(list));
+	REQUIRE(out.rooms.size() == 2);
+
+	CHECK(out.rooms[0].id == "VY4C3NB9");
+	CHECK(out.rooms[0].members == 3);
+	CHECK(out.rooms[0].passworded == true);
+	REQUIRE(out.rooms[0].listing.size() == 2);
+	CHECK(out.rooms[0].listing.at("mode") == "ranked");
+	CHECK(out.rooms[0].listing.at("stage") == "training");
+
+	CHECK(out.rooms[1].members == 1);
+	CHECK(out.rooms[1].passworded == false);
+	CHECK(out.rooms[1].listing.empty());
+
+	CHECK(std::get<Proto::RoomList>(RoundTrip(Proto::RoomList{})).rooms.empty()); // nothing matched
+}
+
+TEST_CASE("a reply of maxed-out rooms fits what a peer will reassemble")
+{
+	// the static_assert above, against the real encoder
+	Proto::RoomInfo entry{ std::string(64, 'R'), 0xFFFFFFFF, true, {} };
+	for (uint32_t i = 0; i < Proto::max_room_listing_keys; i++) {
+		entry.listing.emplace(std::to_string(i) + std::string(Proto::max_room_listing_key - 1, 'k'),
+			std::string(Proto::max_room_listing_value, 'v'));
+	}
+
+	constexpr size_t rooms = Proto::max_reassembled_size / worst_room_bytes;
+	Proto::RoomList list{ std::vector<Proto::RoomInfo>(rooms, entry) };
+
+	std::vector<std::byte> body;
+	zpp::bits::out{ body }(Proto::ServerMessage{ list }).or_throw();
+	CHECK(body.size() <= Proto::max_reassembled_size); // the per-room estimate is not an under-count
+
+	auto out = std::get<Proto::RoomList>(RoundTrip(list)); // fragments and comes back whole
+	CHECK(out.rooms.size() == rooms);
 }
 
 TEST_CASE("p2p signaling round trips")

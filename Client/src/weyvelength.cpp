@@ -97,6 +97,26 @@ bool weyve_set_room_password(WeyveClient* client, const char* password)
 	return client->client.SetRoomPassword(Marshal::Str(password));
 }
 
+bool weyve_set_room_listed(WeyveClient* client, bool listed)
+{
+	return client->client.SetRoomListed(listed);
+}
+
+bool weyve_set_room_listing(WeyveClient* client, const char* key, const char* value)
+{
+	return client->client.SetRoomListing(Marshal::Str(key), Marshal::Str(value));
+}
+
+bool weyve_delete_room_listing(WeyveClient* client, const char* key)
+{
+	return client->client.DeleteRoomListing(Marshal::Str(key));
+}
+
+bool weyve_list_rooms(WeyveClient* client, const WeyveRoomFilter* filters, uint32_t count)
+{
+	return client->client.ListRooms(Marshal::Filters(filters, count));
+}
+
 bool weyve_send_chat(WeyveClient* client, const char* text)
 {
 	return client->client.SendChat(Marshal::Str(text));
@@ -174,6 +194,11 @@ bool weyve_room_passworded(const WeyveClient* client)
 	return client->client.RoomPassworded();
 }
 
+bool weyve_room_listed(const WeyveClient* client)
+{
+	return client->client.RoomListed();
+}
+
 const char* weyve_room_id(const WeyveClient* client, uint32_t* len)
 {
 	const std::string& room = client->client.RoomId();
@@ -225,4 +250,67 @@ const char* weyve_member_data_key_at(const WeyveClient* client, uint32_t id, uin
 		return nullptr;
 	}
 	return Marshal::KeyAt(*data, index, key_len);
+}
+
+const char* weyve_room_listing(const WeyveClient* client, const char* key, uint32_t* value_len)
+{
+	return Marshal::Bytes(client->client.RoomListing(Marshal::Str(key)), value_len);
+}
+
+uint32_t weyve_room_listing_count(const WeyveClient* client)
+{
+	return (uint32_t)client->client.RoomListing().size();
+}
+
+const char* weyve_room_listing_key_at(const WeyveClient* client, uint32_t index, uint32_t* key_len)
+{
+	return Marshal::KeyAt(client->client.RoomListing(), index, key_len);
+}
+
+// --- browsed rooms ---
+
+uint32_t weyve_room_list_count(const WeyveClient* client)
+{
+	return (uint32_t)client->client.RoomList().size();
+}
+
+const char* weyve_room_list_id(const WeyveClient* client, uint32_t room, uint32_t* len)
+{
+	const auto* info = Marshal::RoomAt(client->client.RoomList(), room);
+	return Marshal::Bytes(info ? &info->id : nullptr, len);
+}
+
+uint32_t weyve_room_list_members(const WeyveClient* client, uint32_t room)
+{
+	const auto* info = Marshal::RoomAt(client->client.RoomList(), room);
+	return info ? info->members : 0;
+}
+
+bool weyve_room_list_passworded(const WeyveClient* client, uint32_t room)
+{
+	const auto* info = Marshal::RoomAt(client->client.RoomList(), room);
+	return info && info->passworded;
+}
+
+const char* weyve_room_list_listing(const WeyveClient* client, uint32_t room, const char* key, uint32_t* value_len)
+{
+	const auto* info = Marshal::RoomAt(client->client.RoomList(), room);
+	return Marshal::Bytes(info ? Marshal::Find(info->listing, Marshal::Str(key)) : nullptr, value_len);
+}
+
+uint32_t weyve_room_list_listing_count(const WeyveClient* client, uint32_t room)
+{
+	const auto* info = Marshal::RoomAt(client->client.RoomList(), room);
+	return info ? (uint32_t)info->listing.size() : 0;
+}
+
+const char* weyve_room_list_listing_key_at(const WeyveClient* client, uint32_t room, uint32_t index, uint32_t* key_len)
+{
+	const auto* info = Marshal::RoomAt(client->client.RoomList(), room);
+	if (!info) {
+		if (key_len)
+			*key_len = 0;
+		return nullptr;
+	}
+	return Marshal::KeyAt(info->listing, index, key_len);
 }

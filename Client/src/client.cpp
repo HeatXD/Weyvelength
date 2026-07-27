@@ -118,6 +118,26 @@ namespace Weyvelength {
 		return SendServer(Proto::SetRoomPassword{ password });
 	}
 
+	bool Client::SetRoomListed(bool listed)
+	{
+		return SendServer(Proto::SetRoomListed{ listed });
+	}
+
+	bool Client::SetRoomListing(const std::string& key, const std::string& value)
+	{
+		return SendServer(Proto::SetRoomListing{ key, value });
+	}
+
+	bool Client::DeleteRoomListing(const std::string& key)
+	{
+		return SendServer(Proto::SetRoomListing{ key, {} }); // empty value = clear
+	}
+
+	bool Client::ListRooms(const std::vector<Proto::RoomFilter>& filters)
+	{
+		return SendServer(Proto::ListRooms{ filters });
+	}
+
 	bool Client::SendChat(const std::string& text)
 	{
 		return SendServer(Proto::RoomChat{ 0, text }); // server fills in the sender id
@@ -171,6 +191,27 @@ namespace Weyvelength {
 	bool Client::RoomPassworded() const
 	{
 		return _room_passworded;
+	}
+
+	bool Client::RoomListed() const
+	{
+		return _room_listed;
+	}
+
+	const std::map<std::string, std::string>& Client::RoomListing() const
+	{
+		return _listing;
+	}
+
+	const std::string* Client::RoomListing(const std::string& key) const
+	{
+		auto it = _listing.find(key);
+		return it == _listing.end() ? nullptr : &it->second;
+	}
+
+	const std::vector<Proto::RoomInfo>& Client::RoomList() const
+	{
+		return _room_list;
 	}
 
 	const std::vector<uint32_t>& Client::Members() const
@@ -299,6 +340,8 @@ namespace Weyvelength {
 			_host = 0;
 			_room_open = true;
 			_room_passworded = false;
+			_room_listed = false;
+			_listing.clear();
 			_members.assign(1, _id); // events only ever announce the others
 			_data.clear();
 			_member_data.clear();
@@ -349,6 +392,18 @@ namespace Weyvelength {
 			_room_open = access->open;
 			_room_passworded = access->passworded;
 		}
+		else if (auto* listed = std::get_if<Proto::RoomListedChanged>(&msg)) {
+			_room_listed = listed->listed;
+		}
+		else if (auto* listing = std::get_if<Proto::RoomListingChanged>(&msg)) {
+			if (listing->value.empty())
+				_listing.erase(listing->key);
+			else
+				_listing[listing->key] = listing->value;
+		}
+		else if (auto* list = std::get_if<Proto::RoomList>(&msg)) {
+			_room_list = list->rooms; // copied, not moved: the event still carries it to Next()
+		}
 	}
 
 	void Client::ClearRoomState()
@@ -358,6 +413,8 @@ namespace Weyvelength {
 		_host = 0;
 		_room_open = true;
 		_room_passworded = false;
+		_room_listed = false;
+		_listing.clear();
 		_members.clear();
 		_data.clear();
 		_member_data.clear();

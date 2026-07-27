@@ -20,7 +20,7 @@
 namespace Weyvelength::Proto {
 	constexpr size_t frame_header_size = sizeof(uint32_t);
 	constexpr uint32_t frame_more_flag = 0x80000000u; // header high bit: another fragment follows
-	constexpr size_t max_reassembled_size = 16 * max_message_size; // cap on one reassembled message
+	constexpr size_t max_reassembled_size = 64 * max_message_size; // cap on one reassembled message; sized for the room list
 
 	// Encodes a message as one or more length-prefixed fragments, each within
 	// max_message_size, ready to write to a socket back to back.

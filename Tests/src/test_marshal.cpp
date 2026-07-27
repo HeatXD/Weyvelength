@@ -3,6 +3,7 @@
 #include <map>
 #include <string>
 #include <variant>
+#include <vector>
 
 #include "marshal.h"
 
@@ -10,9 +11,14 @@ using namespace Weyvelength;
 
 // A new alternative that reaches the client needs a case in FillEvent, or it
 // falls through to false; these pins flag a variant or error-enum change.
-static_assert(std::variant_size_v<Proto::ServerMessage> == 25);
+static_assert(std::variant_size_v<Proto::ServerMessage> == 31);
 static_assert((int)WEYVE_ROOM_ERROR_ALREADY_IN_ROOM == (int)Proto::RoomErrorCode::AlreadyInRoom);
 static_assert((int)WEYVE_ROOM_ERROR_BANNED == (int)Proto::RoomErrorCode::Banned);
+static_assert((int)WEYVE_ROOM_ERROR_RATE_LIMITED == (int)Proto::RoomErrorCode::RateLimited);
+
+// Filter ops cross the ABI as a plain cast too, so they map value for value.
+static_assert((int)WEYVE_FILTER_EXISTS == (int)Proto::RoomFilterOp::Exists);
+static_assert((int)WEYVE_FILTER_EQUALS == (int)Proto::RoomFilterOp::Equals);
 
 namespace {
 	bool Surfaced(const Proto::ServerMessage& msg)
@@ -125,6 +131,36 @@ TEST_CASE("kick, ban and access notices map to their data-less events")
 	CHECK(e.data.room_access.passworded == true);
 }
 
+TEST_CASE("room listing notices map to their events")
+{
+	Proto::ServerMessage listed = Proto::RoomListedChanged{ true };
+	WeyveEvent e{};
+
+	REQUIRE(Marshal::FillEvent(listed, &e));
+	CHECK(e.type == WEYVE_EVENT_ROOM_LISTED_CHANGED);
+	CHECK(e.data.room_listed.listed == true);
+
+	Proto::ServerMessage slot = Proto::RoomListingChanged{ "mode", "ranked" };
+	REQUIRE(Marshal::FillEvent(slot, &e));
+	CHECK(e.type == WEYVE_EVENT_ROOM_LISTING_CHANGED);
+	CHECK(std::string(e.data.room_listing.key, e.data.room_listing.key_len) == "mode");
+	CHECK(std::string(e.data.room_listing.value, e.data.room_listing.value_len) == "ranked");
+
+	Proto::ServerMessage cleared = Proto::RoomListingChanged{ "mode", "" };
+	REQUIRE(Marshal::FillEvent(cleared, &e));
+	CHECK(e.data.room_listing.value_len == 0);
+
+	// The reply event is a summary; the rooms themselves live in the client cache.
+	Proto::ServerMessage list = Proto::RoomList{ { { "VY4C3NB9", 3, true, { { "mode", "ranked" } } } } };
+	REQUIRE(Marshal::FillEvent(list, &e));
+	CHECK(e.type == WEYVE_EVENT_ROOM_LIST);
+	CHECK(e.data.room_list.count == 1);
+
+	Proto::ServerMessage empty = Proto::RoomList{};
+	REQUIRE(Marshal::FillEvent(empty, &e));
+	CHECK(e.data.room_list.count == 0);
+}
+
 TEST_CASE("client->server and transport variants are not surfaced")
 {
 	CHECK(!Surfaced(Proto::AssignClientId{ 5 }));
@@ -133,6 +169,9 @@ TEST_CASE("client->server and transport variants are not surfaced")
 	CHECK(!Surfaced(Proto::SetRoomData{ "k", "v" }));
 	CHECK(!Surfaced(Proto::P2PSignal{ 1, Proto::P2PSignalKind::Candidate, "x" }));
 	CHECK(!Surfaced(Proto::IceServers{ "stun", 3478 }));
+	CHECK(!Surfaced(Proto::SetRoomListed{ true }));
+	CHECK(!Surfaced(Proto::SetRoomListing{ "mode", "ranked" }));
+	CHECK(!Surfaced(Proto::ListRooms{}));
 }
 
 TEST_CASE("Str turns a C string into std::string, null into empty")
@@ -155,6 +194,43 @@ TEST_CASE("Bytes borrows the value, null stays null, empty is a valid pointer")
 	std::string empty;
 	CHECK(Marshal::Bytes(&empty, &len) != nullptr);
 	CHECK(len == 0);
+}
+
+TEST_CASE("Find returns the value, an unset key is null")
+{
+	std::map<std::string, std::string> data{ { "mode", "ranked" } };
+
+	const std::string* value = Marshal::Find(data, "mode");
+	REQUIRE(value != nullptr);
+	CHECK(*value == "ranked");
+	CHECK(Marshal::Find(data, "stage") == nullptr);
+}
+
+TEST_CASE("RoomAt indexes the browsed rooms, past the end is null")
+{
+	std::vector<Proto::RoomInfo> rooms{ { "VY4C3NB9", 3, true, {} }, { "ZK7QD2XM", 1, false, {} } };
+
+	REQUIRE(Marshal::RoomAt(rooms, 1) != nullptr);
+	CHECK(Marshal::RoomAt(rooms, 1)->id == "ZK7QD2XM");
+	CHECK(Marshal::RoomAt(rooms, 2) == nullptr);
+	CHECK(Marshal::RoomAt({}, 0) == nullptr);
+}
+
+TEST_CASE("Filters convert across the ABI, a null array is no filters")
+{
+	WeyveRoomFilter filters[]{ { "mode", WEYVE_FILTER_EQUALS, "ranked" },
+							   { "stage", WEYVE_FILTER_EXISTS, nullptr } };
+
+	auto out = Marshal::Filters(filters, 2);
+	REQUIRE(out.size() == 2);
+	CHECK(out[0].key == "mode");
+	CHECK(out[0].op == Proto::RoomFilterOp::Equals);
+	CHECK(out[0].value == "ranked");
+	CHECK(out[1].op == Proto::RoomFilterOp::Exists);
+	CHECK(out[1].value.empty()); // null value, not a crash
+
+	CHECK(Marshal::Filters(nullptr, 3).empty());
+	CHECK(Marshal::Filters(filters, 0).empty());
 }
 
 TEST_CASE("KeyAt walks the keys in order, past the end is null")
