@@ -43,6 +43,11 @@ namespace Weyvelength {
 
 		bool SetRoomJoinable(bool open); // host-only; server replies RoomAccessChanged to the room
 		bool SetRoomPassword(const std::string& password); // host-only; empty clears it
+		bool SetRoomListed(bool listed); // host-only; server replies RoomListedChanged to the room
+		bool SetRoomListing(const std::string& key, const std::string& value); // host-only; one of the room's listing slots
+		bool DeleteRoomListing(const std::string& key); // host-only; sugar for an empty-value SetRoomListing
+
+		bool ListRooms(const std::vector<Proto::RoomFilter>& filters = {}); // server replies RoomList, or RoomError if asked too often
 
 		bool SendChat(const std::string& text); // broadcast to everyone in the current room
 		bool SetRoomData(const std::string& key, const std::string& value); // host-only; server replies RoomDataChanged or RoomError
@@ -61,6 +66,15 @@ namespace Weyvelength {
 
 		bool RoomJoinable() const; // can others join right now?
 		bool RoomPassworded() const; // the flag only; the password itself never reaches clients
+		bool RoomListed() const; // is the room published in the room list?
+
+		const std::map<std::string, std::string>& RoomListing() const; // what browsers see of our room
+		const std::string* RoomListing(const std::string& key) const; // null if the slot is empty
+
+		// The last ListRooms reply. Browse results, not room state: they outlive
+		// joining and leaving, and only another ListRooms replaces them.
+		const std::vector<Proto::RoomInfo>& RoomList() const;
+		bool RoomListTruncated() const; // more rooms matched than fit in the reply
 
 		const std::vector<uint32_t>& Members() const; // everyone in the room, ourselves included
 		const std::map<std::string, std::string>& RoomData() const;
@@ -106,6 +120,10 @@ namespace Weyvelength {
 		uint32_t _host = 0;
 		bool _room_open = true;
 		bool _room_passworded = false;
+		bool _room_listed = false;
+		std::map<std::string, std::string> _listing;
+		std::vector<Proto::RoomInfo> _room_list; // browse results; kept across joins and leaves
+		bool _room_list_truncated = false;
 		std::vector<uint32_t> _members;
 		std::map<std::string, std::string> _data;
 		std::map<uint32_t, std::map<std::string, std::string>> _member_data;
