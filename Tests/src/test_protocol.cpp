@@ -181,6 +181,77 @@ TEST_CASE("room access events round trip")
 	CHECK(access.passworded == true);
 }
 
+TEST_CASE("room listing requests and notices round trip")
+{
+	CHECK(std::get<Proto::SetRoomListed>(RoundTrip(Proto::SetRoomListed{ true })).listed == true);
+	CHECK(std::get<Proto::RoomListedChanged>(RoundTrip(Proto::RoomListedChanged{ true })).listed == true);
+	CHECK(std::get<Proto::RoomListedChanged>(RoundTrip(Proto::RoomListedChanged{ false })).listed == false);
+
+	auto slot = std::get<Proto::SetRoomListing>(RoundTrip(Proto::SetRoomListing{ "mode", "ranked" }));
+	CHECK(slot.key == "mode");
+	CHECK(slot.value == "ranked");
+
+	auto cleared = std::get<Proto::RoomListingChanged>(RoundTrip(Proto::RoomListingChanged{ "mode", "" }));
+	CHECK(cleared.key == "mode");
+	CHECK(cleared.value.empty()); // empty value = cleared
+
+	Proto::ListRooms query{ { { "mode", Proto::RoomFilterOp::Equals, "ranked" },
+							  { "stage", Proto::RoomFilterOp::Exists, "" } } };
+
+	auto out = std::get<Proto::ListRooms>(RoundTrip(query));
+	REQUIRE(out.filters.size() == 2);
+	CHECK(out.filters[0].key == "mode");
+	CHECK(out.filters[0].op == Proto::RoomFilterOp::Equals);
+	CHECK(out.filters[0].value == "ranked");
+	CHECK(out.filters[1].op == Proto::RoomFilterOp::Exists);
+
+	CHECK(std::get<Proto::ListRooms>(RoundTrip(Proto::ListRooms{})).filters.empty()); // no filters = everything listed
+}
+
+TEST_CASE("room lists round trip with their listing slots")
+{
+	Proto::RoomList list{ { { "VY4C3NB9", 3, true, { { "mode", "ranked" }, { "stage", "training" } } },
+							{ "ZK7QD2XM", 1, false, {} } }, true };
+
+	auto out = std::get<Proto::RoomList>(RoundTrip(list));
+	REQUIRE(out.rooms.size() == 2);
+	CHECK(out.truncated == true);
+
+	CHECK(out.rooms[0].id == "VY4C3NB9");
+	CHECK(out.rooms[0].members == 3);
+	CHECK(out.rooms[0].passworded == true);
+	REQUIRE(out.rooms[0].listing.size() == 2);
+	CHECK(out.rooms[0].listing.at("mode") == "ranked");
+	CHECK(out.rooms[0].listing.at("stage") == "training");
+
+	CHECK(out.rooms[1].members == 1);
+	CHECK(out.rooms[1].passworded == false);
+	CHECK(out.rooms[1].listing.empty());
+
+	CHECK(std::get<Proto::RoomList>(RoundTrip(Proto::RoomList{})).rooms.empty()); // nothing matched
+}
+
+TEST_CASE("a full reply of maxed-out rooms survives reassembly")
+{
+	// What the static_assert above claims, against the real encoder: fill a
+	// reply to the entry cap with the biggest rooms the server can describe.
+	Proto::RoomInfo entry{ std::string(64, 'R'), 0xFFFFFFFF, true, {} };
+	for (uint32_t i = 0; i < Proto::max_room_listing_keys; i++) {
+		entry.listing.emplace(std::to_string(i) + std::string(Proto::max_room_listing_key - 1, 'k'),
+			std::string(Proto::max_room_listing_value, 'v'));
+	}
+
+	Proto::RoomList list{ std::vector<Proto::RoomInfo>(Proto::max_room_list_entries, entry), true };
+
+	std::vector<std::byte> body;
+	zpp::bits::out{ body }(Proto::ServerMessage{ list }).or_throw();
+	CHECK(body.size() <= Proto::max_reassembled_size); // counting entries is guard enough
+
+	auto out = std::get<Proto::RoomList>(RoundTrip(list)); // fragments and comes back whole
+	CHECK(out.rooms.size() == Proto::max_room_list_entries);
+	CHECK(out.truncated == true);
+}
+
 TEST_CASE("p2p signaling round trips")
 {
 	auto sig = std::get<Proto::P2PSignal>(RoundTrip(Proto::P2PSignal{ 3, Proto::P2PSignalKind::Candidate, "a=candidate:1 1 UDP 2122317823 192.168.0.10 50000 typ host" }));
