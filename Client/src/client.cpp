@@ -8,7 +8,7 @@
 #include <span>
 #include <vector>
 
-#include <thirdparty/asio/asio.hpp>
+#include <asio.hpp>
 #include <thirdparty/zpp_bits/zpp_bits.h>
 
 #include "framing.h"

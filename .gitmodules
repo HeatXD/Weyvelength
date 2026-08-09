@@ -1,3 +1,6 @@
 [submodule "Client/thirdparty/libjuice"]
 	path = Client/thirdparty/libjuice
 	url = https://github.com/paullouisageneau/libjuice.git
+[submodule "Shared/thirdparty/asio"]
+	path = Shared/thirdparty/asio
+	url = https://github.com/chriskohlhoff/asio.git

@@ -5,7 +5,7 @@ add_library(weyvelength_shared INTERFACE)
 target_include_directories(
     weyvelength_shared
     INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}
-    INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/asio)
+    INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/asio/include)
 target_link_libraries(weyvelength_shared INTERFACE Threads::Threads)
 
 if(WIN32)
