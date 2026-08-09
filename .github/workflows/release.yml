@@ -3,6 +3,7 @@ name: release
 on:
   push:
     branches: [main]
+  pull_request: # build and package only; the release job is main-only
 
 permissions:
   contents: write
@@ -69,6 +70,7 @@ jobs:
           path: weyvelength-${{ matrix.name }}/
 
   release:
+    if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     steps:
