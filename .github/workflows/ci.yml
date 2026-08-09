@@ -1,0 +1,27 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: configure
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+
+      - name: build
+        run: cmake --build build --config Release --target weyvelength_client Server Tests -j
+
+      - name: test
+        run: ctest --test-dir build -C Release --output-on-failure
