@@ -14,7 +14,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include <thirdparty\asio\asio.hpp>
+#include <asio.hpp>
 
 #include "protocol.h"
 

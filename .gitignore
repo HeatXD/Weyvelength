@@ -1,4 +1,4 @@
-﻿################################################################################
+################################################################################
 # This .gitignore file was automatically created by Microsoft(R) Visual Studio.
 ################################################################################
 
@@ -14,3 +14,7 @@
 /Tests/x64/Debug
 /ClientExample/x64/Debug
 /ClientExample/ClientExample.vcxproj.user
+
+# CMake build directories
+/build*/
+/out/
