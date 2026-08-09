@@ -1,0 +1,99 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+  pull_request: # build and package only; the release job is main-only
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux
+          - os: macos-latest
+            name: macos
+          - os: windows-latest
+            name: windows-msvc
+          - os: windows-latest
+            name: windows-mingw
+            mingw: true
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: configure
+        shell: bash
+        run: |
+          if [ "${{ matrix.mingw }}" = "true" ]; then
+            cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+              -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+              -DWEYVELENGTH_BUILD_TESTS=OFF
+          else
+            cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DWEYVELENGTH_BUILD_TESTS=OFF
+          fi
+
+      - name: build
+        run: cmake --build build --config Release --target weyvelength_client weyvelength_client_shared Server -j
+
+      - name: package
+        shell: bash
+        run: |
+          set -eu
+          pkg="weyvelength-${{ matrix.name }}"
+          mkdir -p "$pkg"/{bin,lib,include}
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            find build -type f -name Server.exe -exec cp {} "$pkg/bin/" \;
+          else
+            find build -type f -name Server -exec cp {} "$pkg/bin/" \;
+          fi
+          # the SDK only: juice is already linked into both, so its own lib is not shipped
+          find build/Client -maxdepth 2 -type f \
+            \( -name "*weyvelength*.a" -o -name "*weyvelength*.lib" \
+            -o -name "*weyvelength*.dll" -o -name "*weyvelength*.so" -o -name "*weyvelength*.dylib" \) \
+            -exec cp {} "$pkg/lib/" \;
+          cp Client/include/weyvelength.h "$pkg/include/"
+          cp LICENSE "$pkg/"
+          ls -R "$pkg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weyvelength-${{ matrix.name }}
+          path: weyvelength-${{ matrix.name }}/
+
+  release:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: generate release tag
+        run: echo "TAG=v$(date +'%Y%m%d%H%M%S')-$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: create packages
+        run: |
+          set -eu
+          for dir in artifacts/*/; do
+            name=$(basename "$dir")
+            tar -czf "$name.tar.gz" -C "$dir" .
+          done
+          ls -l *.tar.gz
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          files: weyvelength-*.tar.gz
