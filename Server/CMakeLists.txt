@@ -10,4 +10,6 @@ target_link_libraries(Server PRIVATE weyvelength_shared)
 
 if(MSVC)
     target_compile_options(Server PRIVATE /utf-8) # fmt 11 (bundled in spdlog) requires utf-8 literals
+elseif(MINGW)
+    target_compile_options(Server PRIVATE -Wa,-mbig-obj) # asio's coroutines blow past GNU as's section limit otherwise
 endif()
