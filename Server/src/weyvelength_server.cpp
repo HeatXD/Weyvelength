@@ -23,6 +23,12 @@ namespace Weyvelength {
 		conn->wake.cancel();
 	}
 
+	// Slot plus generation, so a recycled slot yields a different id and stale
+	// references miss in _connections instead of hitting the new owner.
+	constexpr uint32_t id_slot_bits = 20;
+	constexpr uint32_t id_max_slot = (1u << id_slot_bits) - 1; // 1M concurrent
+	constexpr uint32_t id_generation_step = 1u << id_slot_bits;
+
 	static std::string MakeRoomCode(uint32_t length)
 	{
 		static std::mt19937 rng{ std::random_device{}() };
@@ -79,7 +85,14 @@ namespace Weyvelength {
 		while (true) {
 			asio::ip::tcp::socket socket = co_await _acceptor.async_accept(use_awaitable);
 
-			uint32_t id = _next_id++;   // single-threaded io_context: no lock needed
+			uint32_t id = AllocateId();   // single-threaded io_context: no lock needed
+			if (id == 0) {
+				spdlog::warn("Refusing connection: no client ids left");
+				asio::error_code ec;
+				socket.close(ec);
+				continue;
+			}
+
 			auto conn = std::make_shared<Connection>(id, std::move(socket));
 			_connections.emplace(id, conn);
 
@@ -109,6 +122,7 @@ namespace Weyvelength {
 		conn->socket.close(ec);
 		LeaveRoom(conn);
 		_connections.erase(conn->id);
+		ReleaseId(conn->id);
 
 		spdlog::info("Client {} disconnected", conn->id);
 	}
@@ -662,6 +676,25 @@ namespace Weyvelength {
 
 		spdlog::debug("Client {} listed {} rooms", conn->id, list.rooms.size());
 		SendTo(conn->id, list);
+	}
+
+	uint32_t Server::AllocateId()
+	{
+		if (!_free_ids.empty()) {
+			uint32_t id = _free_ids.front();
+			_free_ids.pop_front();
+			return id;
+		}
+
+		if (_next_slot > id_max_slot)
+			return 0; // every slot is live; the caller turns the connection away
+		return _next_slot++; // a fresh slot starts at generation 0
+	}
+
+	void Server::ReleaseId(uint32_t id)
+	{
+		// Wraps to generation 0 after 4096 reuses; nothing that old still holds it.
+		_free_ids.push_back(id + id_generation_step);
 	}
 
 	void Server::LeaveRoom(const std::shared_ptr<Connection>& conn)
