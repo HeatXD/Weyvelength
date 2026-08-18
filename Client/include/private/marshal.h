@@ -96,6 +96,8 @@ namespace Weyvelength::Marshal {
 		else if (auto* joined = std::get_if<Proto::PeerJoined>(&msg)) {
 			out->type = WEYVE_EVENT_PEER_JOINED;
 			out->data.peer_joined.id = joined->id;
+			out->data.peer_joined.name = joined->name.data();
+			out->data.peer_joined.name_len = (uint32_t)joined->name.size();
 		}
 		else if (auto* left = std::get_if<Proto::PeerLeft>(&msg)) {
 			out->type = WEYVE_EVENT_PEER_LEFT;

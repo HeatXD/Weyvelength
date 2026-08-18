@@ -26,6 +26,10 @@ extern "C" {
 
 typedef struct WeyveClient WeyveClient; // opaque; owns one server connection and its p2p mesh
 
+// Mirrors Proto::default_client_name and Proto::max_client_name.
+#define WEYVE_DEFAULT_NAME "WEYVE_PLAYER"
+#define WEYVE_MAX_NAME 32
+
 // Mirrors Proto::RoomErrorCode; carried by WEYVE_EVENT_ROOM_ERROR.
 typedef enum WeyveRoomError {
 	WEYVE_ROOM_ERROR_ALREADY_IN_ROOM,
@@ -102,6 +106,8 @@ typedef struct WeyveEvent {
 
 		struct { // WEYVE_EVENT_PEER_JOINED
 			uint32_t id;
+			const char* name;
+			uint32_t name_len;
 		} peer_joined;
 
 		struct { // WEYVE_EVENT_PEER_LEFT
@@ -160,6 +166,13 @@ WEYVE_API bool weyve_next(WeyveClient* client, WeyveEvent* out); // one queued e
 
 WEYVE_API bool weyve_send_heartbeat(WeyveClient* client, uint64_t timestamp); // server pongs it back
 
+// --- identity ---
+
+// Our display name, cosmetic and never unique: the id stays the identity. Send
+// it right after connecting; in a room it fails with ALREADY_IN_ROOM. Null or ""
+// resets to WEYVE_DEFAULT_NAME, over WEYVE_MAX_NAME bytes is clamped.
+WEYVE_API bool weyve_set_name(WeyveClient* client, const char* name);
+
 // --- rooms ---
 
 WEYVE_API bool weyve_create_room(WeyveClient* client); // -> WEYVE_EVENT_ROOM_ID_ASSIGNED or WEYVE_EVENT_ROOM_ERROR
@@ -202,6 +215,12 @@ WEYVE_API bool weyve_peer_connected(WeyveClient* client, uint32_t id); // is a d
 // Getters below read the client's cache; nothing blocks or hits the network.
 
 WEYVE_API uint32_t weyve_id(const WeyveClient* client); // 0 until the server assigns one
+
+// Our own name as accepted, and any member's by id; weyve_peer_name is null
+// once the id is not a member. Borrowed, valid until the next weyve_poll.
+WEYVE_API const char* weyve_name(const WeyveClient* client, uint32_t* len);
+WEYVE_API const char* weyve_peer_name(const WeyveClient* client, uint32_t id, uint32_t* len);
+
 WEYVE_API uint32_t weyve_host_id(const WeyveClient* client); // 0 until a room is joined
 WEYVE_API bool weyve_is_host(const WeyveClient* client);
 WEYVE_API bool weyve_room_joinable(const WeyveClient* client);

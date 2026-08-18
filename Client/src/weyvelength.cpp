@@ -55,6 +55,13 @@ bool weyve_send_heartbeat(WeyveClient* client, uint64_t timestamp)
 	return client->client.SendServer(Proto::Heartbeat{ timestamp });
 }
 
+// --- identity ---
+
+bool weyve_set_name(WeyveClient* client, const char* name)
+{
+	return client->client.SetName(Marshal::Str(name));
+}
+
 // --- rooms ---
 
 bool weyve_create_room(WeyveClient* client)
@@ -172,6 +179,16 @@ bool weyve_peer_connected(WeyveClient* client, uint32_t id)
 uint32_t weyve_id(const WeyveClient* client)
 {
 	return client->client.Id();
+}
+
+const char* weyve_name(const WeyveClient* client, uint32_t* len)
+{
+	return Marshal::Bytes(&client->client.Name(), len);
+}
+
+const char* weyve_peer_name(const WeyveClient* client, uint32_t id, uint32_t* len)
+{
+	return Marshal::Bytes(client->client.PeerName(id), len);
 }
 
 uint32_t weyve_host_id(const WeyveClient* client)
