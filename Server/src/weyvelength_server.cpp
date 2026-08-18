@@ -105,7 +105,7 @@ namespace Weyvelength {
 	{
 		asio::co_spawn(conn->socket.get_executor(), WriteLoop(conn), asio::detached);
 
-		SendTo(conn->id, Proto::AssignClientId{ conn->id });
+		SendTo(conn->id, Proto::AssignClientId{ conn->id, conn->name });
 		SendTo(conn->id, _config.ice); // p2p infrastructure; empty fields = none
 
 		try {
@@ -204,6 +204,9 @@ namespace Weyvelength {
 		else if (auto* signal = std::get_if<Proto::P2PSignal>(&msg)) {
 			HandleP2PSignal(conn, *signal);
 		}
+		else if (auto* name = std::get_if<Proto::SetName>(&msg)) {
+			HandleSetName(conn, *name);
+		}
 		else if (auto* set = std::get_if<Proto::SetRoomData>(&msg)) {
 			HandleSetRoomData(conn, *set);
 		}
@@ -234,6 +237,15 @@ namespace Weyvelength {
 		else if (auto* list = std::get_if<Proto::ListRooms>(&msg)) {
 			HandleListRooms(conn, *list);
 		}
+	}
+
+	// A member always has a live connection; the default guards against a miss.
+	const std::string& Server::MemberName(uint32_t id) const
+	{
+		static const std::string fallback = Proto::default_client_name;
+
+		auto it = _connections.find(id);
+		return it == _connections.end() ? fallback : it->second->name;
 	}
 
 	// Shared preamble of every host-only action: resolves the sender's room
@@ -302,14 +314,14 @@ namespace Weyvelength {
 			return;
 		}
 
-		SendToMany(room.members, Proto::PeerJoined{ conn->id });
+		SendToMany(room.members, Proto::PeerJoined{ conn->id, conn->name });
 
 		// hydrate the joiner with the same events everyone else already
 		// understands: one per existing member, the host, one per data key
 		SendTo(conn->id, Proto::AssignRoomId{ msg.id });
 
 		for (uint32_t member : room.members) {
-			SendTo(conn->id, Proto::PeerJoined{ member });
+			SendTo(conn->id, Proto::PeerJoined{ member, MemberName(member) });
 		}
 
 		SendTo(conn->id, Proto::HostChanged{ room.host });
@@ -389,6 +401,21 @@ namespace Weyvelength {
 			spdlog::info("c{} -> c{} p2p description ({} bytes)", conn->id, msg.id, msg.payload.size());
 		spdlog::debug("c{} -> c{} p2p {}: {}", conn->id, msg.id, P2PSignalKindName(msg.kind), msg.payload);
 		SendTo(msg.id, Proto::P2PSignal{ conn->id, msg.kind, msg.payload }); // forwarded carrying the sender's id
+	}
+
+	// Refused while in a room: nothing re-announces a name, so it has to hold
+	// still for as long as peers can see it.
+	void Server::HandleSetName(const std::shared_ptr<Connection>& conn, const Proto::SetName& msg)
+	{
+		if (!conn->room.empty()) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::AlreadyInRoom, conn->room });
+			return;
+		}
+
+		conn->name = msg.name.empty() ? Proto::default_client_name : msg.name.substr(0, Proto::max_client_name);
+		SendTo(conn->id, Proto::AssignClientId{ conn->id, conn->name }); // the ack is the new pairing
+
+		spdlog::info("Client {} is now {}", conn->id, conn->name);
 	}
 
 	void Server::HandleSetRoomData(const std::shared_ptr<Connection>& conn, const Proto::SetRoomData& msg)

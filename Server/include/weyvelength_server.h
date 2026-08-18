@@ -30,6 +30,7 @@ namespace Weyvelength {
 	struct Connection {
 		uint32_t id = 0;
 		std::string room; // empty = not in a room
+		std::string name = Proto::default_client_name; // never empty; fixed while in a room
 		asio::ip::tcp::socket socket;
 
 		std::deque<std::vector<std::byte>> out; // outbound queue; WriteLoop is the sole writer
@@ -73,6 +74,7 @@ namespace Weyvelength {
 		void HandleLeaveRoom(const std::shared_ptr<Connection>& conn);
 		void HandleRoomChat(const std::shared_ptr<Connection>& conn, const Proto::RoomChat& msg);
 		void HandleP2PSignal(const std::shared_ptr<Connection>& conn, const Proto::P2PSignal& msg);
+		void HandleSetName(const std::shared_ptr<Connection>& conn, const Proto::SetName& msg);
 		void HandleSetRoomData(const std::shared_ptr<Connection>& conn, const Proto::SetRoomData& msg);
 		void HandleSetMemberData(const std::shared_ptr<Connection>& conn, const Proto::SetMemberData& msg);
 		void HandleKickMember(const std::shared_ptr<Connection>& conn, const Proto::KickMember& msg);
@@ -85,6 +87,7 @@ namespace Weyvelength {
 		void HandleListRooms(const std::shared_ptr<Connection>& conn, const Proto::ListRooms& msg);
 
 		void LeaveRoom(const std::shared_ptr<Connection>& conn);
+		const std::string& MemberName(uint32_t id) const; // the default if the connection is gone
 		Room* HostRoom(const std::shared_ptr<Connection>& conn); // the sender's room if they host it, else null after sending the error
 
 		uint32_t AllocateId(); // 0 when the slot space is exhausted
