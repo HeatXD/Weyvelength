@@ -78,7 +78,9 @@ static void PrintRoomInfo(WeyveClient* client)
 
 	std::cout << "Members:";
 	for (uint32_t i = 0; i < count; i++) {
-		std::cout << " " << members[i];
+		uint32_t name_len = 0;
+		const char* name = weyve_peer_name(client, members[i], &name_len); // null once they are not a member
+		std::cout << " " << members[i] << "(" << (name ? std::string(name, name_len) : std::string()) << ")"; // names collide, the id does not
 	}
 	std::cout << "\n";
 
@@ -226,8 +228,11 @@ static int RunPing(WeyveClient* client)
 }
 
 // Create a room (empty code) or join one, then send typed lines to everyone in it.
-static int RunChat(WeyveClient* client, const std::string& code, const std::string& password)
+static int RunChat(WeyveClient* client, const std::string& code, const std::string& password, const std::string& name)
 {
+	if (!name.empty())
+		weyve_set_name(client, name.c_str()); // has to happen before we are in a room
+
 	if (code.empty())
 		weyve_create_room(client);
 	else
@@ -257,7 +262,8 @@ static int RunChat(WeyveClient* client, const std::string& code, const std::stri
 				std::cout << "[client " << event.data.chat.from << "] " << std::string(event.data.chat.text, event.data.chat.text_len) << "\n";
 				break;
 			case WEYVE_EVENT_PEER_JOINED:
-				std::cout << "* client " << event.data.peer_joined.id << " is here\n";
+				std::cout << "* client " << event.data.peer_joined.id << " ("
+					<< std::string(event.data.peer_joined.name, event.data.peer_joined.name_len) << ") is here\n";
 				break;
 			case WEYVE_EVENT_PEER_LEFT:
 				if (event.data.peer_left.id == weyve_id(client)) {
@@ -324,7 +330,9 @@ static int RunChat(WeyveClient* client, const std::string& code, const std::stri
 		while (!RoomId(client).empty() && NextInputLine(line)) {
 			if (line.empty())
 				continue;
-			if (line == "/who")
+			if (line.rfind("/name ", 0) == 0)
+				weyve_set_name(client, line.substr(6).c_str()); // always refused here: we are in a room
+			else if (line == "/who")
 				PrintRoomInfo(client);
 			else if (line == "/leave")
 				weyve_leave_room(client);
@@ -384,6 +392,8 @@ int main(int argc, char* argv[])
 		std::cout << "usage: clientexample ping        heartbeat/rtt demo\n";
 		std::cout << "       clientexample chat        create a room and chat in it\n";
 		std::cout << "       clientexample chat CODE [PASSWORD]   join a room and chat in it\n";
+		std::cout << "       clientexample chat CODE PASSWORD NAME   ... under a chosen name\n";
+		std::cout << "       (pass \"\" for CODE and PASSWORD to create a room under a name)\n";
 		return 1;
 	}
 
@@ -399,7 +409,8 @@ int main(int argc, char* argv[])
 
 	std::cout << "Connected to " << host << ":" << port << "\n";
 
-	int result = mode == "ping" ? RunPing(client) : RunChat(client, argc > 2 ? argv[2] : "", argc > 3 ? argv[3] : "");
+	int result = mode == "ping" ? RunPing(client)
+		: RunChat(client, argc > 2 ? argv[2] : "", argc > 3 ? argv[3] : "", argc > 4 ? argv[4] : "");
 
 	weyve_client_destroy(client);
 	return result;
