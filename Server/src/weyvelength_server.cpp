@@ -23,6 +23,42 @@ namespace Weyvelength {
 		conn->wake.cancel();
 	}
 
+	// Slot plus generation, so a recycled slot yields a different id and stale
+	// references miss in _connections instead of hitting the new owner.
+	constexpr uint32_t id_slot_bits = 20;
+	constexpr uint32_t id_max_slot = (1u << id_slot_bits) - 1; // 1M concurrent
+	constexpr uint32_t id_generation_step = 1u << id_slot_bits;
+
+	// Control characters go first: a newline in a name would forge log lines.
+	static std::string CleanName(std::string name)
+	{
+		std::erase_if(name, [](unsigned char c) { return c < 0x20 || c == 0x7F; });
+
+		if (name.size() > Proto::max_client_name) {
+			name.resize(Proto::max_client_name);
+			// Back off a cut inside a utf-8 sequence, so no half code point survives.
+			while (!name.empty() && ((unsigned char)name.back() & 0xC0) == 0x80)
+				name.pop_back();
+			if (!name.empty() && ((unsigned char)name.back() & 0xC0) == 0xC0)
+				name.pop_back(); // a lead byte with its continuation bytes cut off
+		}
+
+		return name;
+	}
+
+	// Passwords stay out of the log; the username says which batch is live.
+	static void LogIceServers(const Proto::IceServers& ice)
+	{
+		if (ice.stun_host.empty())
+			spdlog::info("Ice: no stun");
+		else
+			spdlog::info("Ice: stun {}:{}", ice.stun_host, ice.stun_port);
+
+		for (const Proto::TurnServer& turn : ice.turn) {
+			spdlog::info("Ice: turn {}:{} as {}", turn.host, turn.port, turn.username);
+		}
+	}
+
 	static std::string MakeRoomCode(uint32_t length)
 	{
 		static std::mt19937 rng{ std::random_device{}() };
@@ -60,6 +96,7 @@ namespace Weyvelength {
 		if (ec) return false;
 
 		spdlog::info("Listening on port {}", config.port);
+		LogIceServers(_config.ice);
 		return true;
 	}
 
@@ -74,12 +111,35 @@ namespace Weyvelength {
 		_context.stop();
 	}
 
+	void Server::SetIceServers(const Proto::IceServers& ice)
+	{
+		asio::post(_context, [this, ice]() {
+			if (ice == _config.ice)
+				return; // nothing moved, so nobody needs telling
+
+			_config.ice = ice;
+			for (const auto& [id, conn] : _connections) {
+				SendTo(id, _config.ice);
+			}
+
+			spdlog::info("Ice servers swapped, told {} client(s)", _connections.size());
+			LogIceServers(_config.ice);
+		});
+	}
+
 	asio::awaitable<void> Server::AcceptLoop()
 	{
 		while (true) {
 			asio::ip::tcp::socket socket = co_await _acceptor.async_accept(use_awaitable);
 
-			uint32_t id = _next_id++;   // single-threaded io_context: no lock needed
+			uint32_t id = AllocateId();   // single-threaded io_context: no lock needed
+			if (id == 0) {
+				spdlog::warn("Refusing connection: no client ids left");
+				asio::error_code ec;
+				socket.close(ec);
+				continue;
+			}
+
 			auto conn = std::make_shared<Connection>(id, std::move(socket));
 			_connections.emplace(id, conn);
 
@@ -92,7 +152,7 @@ namespace Weyvelength {
 	{
 		asio::co_spawn(conn->socket.get_executor(), WriteLoop(conn), asio::detached);
 
-		SendTo(conn->id, Proto::AssignClientId{ conn->id });
+		SendTo(conn->id, Proto::AssignClientId{ conn->id, conn->name });
 		SendTo(conn->id, _config.ice); // p2p infrastructure; empty fields = none
 
 		try {
@@ -109,6 +169,7 @@ namespace Weyvelength {
 		conn->socket.close(ec);
 		LeaveRoom(conn);
 		_connections.erase(conn->id);
+		ReleaseId(conn->id);
 
 		spdlog::info("Client {} disconnected", conn->id);
 	}
@@ -190,6 +251,9 @@ namespace Weyvelength {
 		else if (auto* signal = std::get_if<Proto::P2PSignal>(&msg)) {
 			HandleP2PSignal(conn, *signal);
 		}
+		else if (auto* name = std::get_if<Proto::SetName>(&msg)) {
+			HandleSetName(conn, *name);
+		}
 		else if (auto* set = std::get_if<Proto::SetRoomData>(&msg)) {
 			HandleSetRoomData(conn, *set);
 		}
@@ -220,6 +284,15 @@ namespace Weyvelength {
 		else if (auto* list = std::get_if<Proto::ListRooms>(&msg)) {
 			HandleListRooms(conn, *list);
 		}
+	}
+
+	// A member always has a live connection; the default guards against a miss.
+	const std::string& Server::MemberName(uint32_t id) const
+	{
+		static const std::string fallback = Proto::default_client_name;
+
+		auto it = _connections.find(id);
+		return it == _connections.end() ? fallback : it->second->name;
 	}
 
 	// Shared preamble of every host-only action: resolves the sender's room
@@ -288,14 +361,14 @@ namespace Weyvelength {
 			return;
 		}
 
-		SendToMany(room.members, Proto::PeerJoined{ conn->id });
+		SendToMany(room.members, Proto::PeerJoined{ conn->id, conn->name });
 
 		// hydrate the joiner with the same events everyone else already
 		// understands: one per existing member, the host, one per data key
 		SendTo(conn->id, Proto::AssignRoomId{ msg.id });
 
 		for (uint32_t member : room.members) {
-			SendTo(conn->id, Proto::PeerJoined{ member });
+			SendTo(conn->id, Proto::PeerJoined{ member, MemberName(member) });
 		}
 
 		SendTo(conn->id, Proto::HostChanged{ room.host });
@@ -375,6 +448,22 @@ namespace Weyvelength {
 			spdlog::info("c{} -> c{} p2p description ({} bytes)", conn->id, msg.id, msg.payload.size());
 		spdlog::debug("c{} -> c{} p2p {}: {}", conn->id, msg.id, P2PSignalKindName(msg.kind), msg.payload);
 		SendTo(msg.id, Proto::P2PSignal{ conn->id, msg.kind, msg.payload }); // forwarded carrying the sender's id
+	}
+
+	// Refused while in a room: nothing re-announces a name, so it has to hold
+	// still for as long as peers can see it.
+	void Server::HandleSetName(const std::shared_ptr<Connection>& conn, const Proto::SetName& msg)
+	{
+		if (!conn->room.empty()) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::AlreadyInRoom, conn->room });
+			return;
+		}
+
+		std::string name = CleanName(msg.name);
+		conn->name = name.empty() ? Proto::default_client_name : std::move(name);
+		SendTo(conn->id, Proto::AssignClientId{ conn->id, conn->name }); // the ack is the new pairing
+
+		spdlog::info("Client {} is now {}", conn->id, conn->name);
 	}
 
 	void Server::HandleSetRoomData(const std::shared_ptr<Connection>& conn, const Proto::SetRoomData& msg)
@@ -662,6 +751,25 @@ namespace Weyvelength {
 
 		spdlog::debug("Client {} listed {} rooms", conn->id, list.rooms.size());
 		SendTo(conn->id, list);
+	}
+
+	uint32_t Server::AllocateId()
+	{
+		if (!_free_ids.empty()) {
+			uint32_t id = _free_ids.front();
+			_free_ids.pop_front();
+			return id;
+		}
+
+		if (_next_slot > id_max_slot)
+			return 0; // every slot is live; the caller turns the connection away
+		return _next_slot++; // a fresh slot starts at generation 0
+	}
+
+	void Server::ReleaseId(uint32_t id)
+	{
+		// Wraps to generation 0 after 4096 reuses; nothing that old still holds it.
+		_free_ids.push_back(id + id_generation_step);
 	}
 
 	void Server::LeaveRoom(const std::shared_ptr<Connection>& conn)

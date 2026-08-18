@@ -33,6 +33,8 @@ namespace Weyvelength {
 
 		bool SendServer(const Proto::ServerMessage& msg);
 
+		bool SetName(const std::string& name); // rejected while in a room; empty resets to the default
+
 		bool CreateRoom(); // server replies AssignRoomId or RoomError
 		bool JoinRoom(const std::string& id, const std::string& password = {}); // server replies AssignRoomId or RoomError
 		bool LeaveRoom(); // server replies PeerLeft carrying our own id, or RoomError
@@ -60,6 +62,8 @@ namespace Weyvelength {
 		bool PeerConnectedP2P(uint32_t id) const; // is a direct link to this member up right now?
 
 		uint32_t Id() const;  // 0 until the server has assigned one
+		const std::string& Name() const; // our own name, as the server accepted it
+		const std::string* PeerName(uint32_t id) const; // null once they are no longer a member
 		const std::string& RoomId() const; // empty until a room has been joined
 		uint32_t HostId() const; // 0 until a room has been joined
 		bool IsHost() const;
@@ -114,6 +118,7 @@ namespace Weyvelength {
 		std::queue<std::pair<uint32_t, Proto::P2PMessage>> _p2p_inbox;
 
 		uint32_t _id = 0;
+		std::string _name = Proto::default_client_name;
 		std::string _room;
 		uint32_t _host = 0;
 		bool _room_open = true;
@@ -122,6 +127,7 @@ namespace Weyvelength {
 		std::map<std::string, std::string> _listing;
 		std::vector<Proto::RoomInfo> _room_list;
 		std::vector<uint32_t> _members;
+		std::map<uint32_t, std::string> _names; // members' names, for exactly as long as they are members
 		std::map<std::string, std::string> _data;
 		std::map<uint32_t, std::map<std::string, std::string>> _member_data;
 	};

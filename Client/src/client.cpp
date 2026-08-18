@@ -78,6 +78,11 @@ namespace Weyvelength {
 		return true;
 	}
 
+	bool Client::SetName(const std::string& name)
+	{
+		return SendServer(Proto::SetName{ name });
+	}
+
 	bool Client::CreateRoom()
 	{
 		return SendServer(Proto::CreateRoom{});
@@ -166,6 +171,17 @@ namespace Weyvelength {
 	uint32_t Client::Id() const
 	{
 		return _id;
+	}
+
+	const std::string& Client::Name() const
+	{
+		return _name;
+	}
+
+	const std::string* Client::PeerName(uint32_t id) const
+	{
+		auto it = _names.find(id);
+		return it == _names.end() ? nullptr : &it->second;
 	}
 
 	const std::string& Client::RoomId() const
@@ -295,6 +311,7 @@ namespace Weyvelength {
 
 			if (auto* assign = std::get_if<Proto::AssignClientId>(&msg)) {
 				_id = assign->id;   // transport metadata; not surfaced via Next()
+				_name = assign->name;   // what the server accepted, clamping included
 			}
 			else if (auto* ice = std::get_if<Proto::IceServers>(&msg)) {
 				_ice = std::move(*ice);   // transport metadata; not surfaced via Next()
@@ -343,11 +360,14 @@ namespace Weyvelength {
 			_room_listed = false;
 			_listing.clear();
 			_members.assign(1, _id); // events only ever announce the others
+			_names.clear();
+			_names[_id] = _name;
 			_data.clear();
 			_member_data.clear();
 		}
 		else if (auto* joined = std::get_if<Proto::PeerJoined>(&msg)) {
 			_members.push_back(joined->id);
+			_names[joined->id] = joined->name;
 		}
 		else if (auto* left = std::get_if<Proto::PeerLeft>(&msg)) {
 			if (left->id == _id) {
@@ -355,6 +375,7 @@ namespace Weyvelength {
 			}
 			else {
 				std::erase(_members, left->id);
+				_names.erase(left->id);
 				_member_data.erase(left->id);
 				DestroyLink(left->id); // no member, no mesh link
 				_mesh->attempts.erase(left->id); // and no grudge if they rejoin
@@ -416,6 +437,7 @@ namespace Weyvelength {
 		_room_listed = false;
 		_listing.clear();
 		_members.clear();
+		_names.clear();
 		_data.clear();
 		_member_data.clear();
 	}

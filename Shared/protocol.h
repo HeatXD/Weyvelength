@@ -9,7 +9,11 @@
 
 namespace Weyvelength::Proto {
 	struct Heartbeat { uint64_t timestamp; };   // server <-> client heartbeat
-	struct AssignClientId { uint32_t id = 0; };  // server -> client: the client's own connection id
+	// server -> client: our own id and name; re-sent when SetName changes it
+	struct AssignClientId {
+		uint32_t id = 0;
+		std::string name;
+	};
 	struct AssignRoomId { std::string id; }; // server -> client: the room id the client has joined successfully
 
 	enum class RoomErrorCode : uint8_t {
@@ -44,9 +48,18 @@ namespace Weyvelength::Proto {
 		std::string text;
 	};
 
-	struct PeerJoined { uint32_t id = 0; }; // server -> client: another client is in the room (live join, or replayed to a joiner per existing member)
+	// server -> client: another client is in the room (live join, or replayed to a
+	// joiner per existing member); the name is fixed for as long as they stay
+	struct PeerJoined {
+		uint32_t id = 0;
+		std::string name;
+	};
 	struct PeerLeft { uint32_t id = 0; }; // server -> client: a client left the room; your own id confirms your LeaveRoom
 	struct HostChanged { uint32_t id = 0; }; // server -> client: the room's current host
+
+	// client -> server: set our display name; empty resets it to the default.
+	// Refused while in a room, so no rename event is needed.
+	struct SetName { std::string name; };
 
 	struct SetRoomData { // client -> server: set one room metadata key; empty value deletes it
 		std::string key;
@@ -141,12 +154,17 @@ namespace Weyvelength::Proto {
 		uint16_t port = 0;
 		std::string username;
 		std::string password;
+
+		bool operator==(const TurnServer&) const = default;
 	};
 
-	struct IceServers { // server -> client: sent once after connect
+	// server -> client: sent on connect, and again on every swap
+	struct IceServers {
 		std::string stun_host; // empty = no stun
 		uint16_t stun_port = 0;
 		std::vector<TurnServer> turn;
+
+		bool operator==(const IceServers&) const = default;
 	};
 
 	// All traffic on the server connection, both directions. Only append new
@@ -155,7 +173,8 @@ namespace Weyvelength::Proto {
 	using ServerMessage = std::variant<Heartbeat, AssignClientId, AssignRoomId, CreateRoom, JoinRoom, RoomError, RoomChat,
 		LeaveRoom, PeerJoined, PeerLeft, HostChanged, SetRoomData, RoomDataChanged, SetMemberData, MemberDataChanged,
 		KickMember, TransferHost, SetRoomJoinable, SetRoomPassword, KickedByHost, RoomAccessChanged, BanMember, BannedByHost,
-		P2PSignal, IceServers, SetRoomListed, RoomListedChanged, SetRoomListing, RoomListingChanged, ListRooms, RoomList>;
+		P2PSignal, IceServers, SetRoomListed, RoomListedChanged, SetRoomListing, RoomListingChanged, ListRooms, RoomList,
+		SetName>;
 
 	// Opaque bytes, one datagram per message; the app defines its own encoding.
 	using P2PMessage = std::vector<std::byte>;
@@ -170,6 +189,10 @@ namespace Weyvelength::Proto {
 	constexpr uint32_t max_room_data_keys = 64;
 	constexpr uint32_t max_member_data_keys = 16;
 	constexpr uint32_t max_room_password = 64;
+
+	// Names are cosmetic and never unique: the id stays the identity.
+	constexpr const char* default_client_name = "WEYVE_PLAYER";
+	constexpr uint32_t max_client_name = 32;
 
 	// Listing slots are small: a browser shows one line per room.
 	constexpr uint32_t max_room_listing_keys = 5;

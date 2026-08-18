@@ -30,6 +30,7 @@ namespace Weyvelength {
 	struct Connection {
 		uint32_t id = 0;
 		std::string room; // empty = not in a room
+		std::string name = Proto::default_client_name; // never empty; fixed while in a room
 		asio::ip::tcp::socket socket;
 
 		std::deque<std::vector<std::byte>> out; // outbound queue; WriteLoop is the sole writer
@@ -62,6 +63,10 @@ namespace Weyvelength {
 		void Run();
 		void Stop();
 
+		// Swaps the set and pushes it to everyone connected; a no-op swap sends
+		// nothing. Safe from any thread. Existing links keep their old config.
+		void SetIceServers(const Proto::IceServers& ice);
+
 	private:
 		void SendTo(uint32_t id, const Proto::ServerMessage& msg);
 		void SendToMany(const std::vector<uint32_t>& ids, const Proto::ServerMessage& msg);
@@ -73,6 +78,7 @@ namespace Weyvelength {
 		void HandleLeaveRoom(const std::shared_ptr<Connection>& conn);
 		void HandleRoomChat(const std::shared_ptr<Connection>& conn, const Proto::RoomChat& msg);
 		void HandleP2PSignal(const std::shared_ptr<Connection>& conn, const Proto::P2PSignal& msg);
+		void HandleSetName(const std::shared_ptr<Connection>& conn, const Proto::SetName& msg);
 		void HandleSetRoomData(const std::shared_ptr<Connection>& conn, const Proto::SetRoomData& msg);
 		void HandleSetMemberData(const std::shared_ptr<Connection>& conn, const Proto::SetMemberData& msg);
 		void HandleKickMember(const std::shared_ptr<Connection>& conn, const Proto::KickMember& msg);
@@ -85,7 +91,11 @@ namespace Weyvelength {
 		void HandleListRooms(const std::shared_ptr<Connection>& conn, const Proto::ListRooms& msg);
 
 		void LeaveRoom(const std::shared_ptr<Connection>& conn);
+		const std::string& MemberName(uint32_t id) const; // the default if the connection is gone
 		Room* HostRoom(const std::shared_ptr<Connection>& conn); // the sender's room if they host it, else null after sending the error
+
+		uint32_t AllocateId(); // 0 when the slot space is exhausted
+		void ReleaseId(uint32_t id);
 
 		asio::awaitable<void> AcceptLoop();
 		asio::awaitable<void> Session(std::shared_ptr<Connection> conn);
@@ -98,7 +108,8 @@ namespace Weyvelength {
 		std::unordered_map<uint32_t, std::shared_ptr<Connection>> _connections;
 		std::unordered_map<std::string, Room> _rooms;
 
-		uint32_t _next_id = 1;   // 0 reserved as "none"
+		std::deque<uint32_t> _free_ids; // released ids, generation already bumped; FIFO so reuse is delayed
+		uint32_t _next_slot = 1;   // slots never yet handed out; 0 reserved as "none"
 
 		ServerConfig _config;
 	};

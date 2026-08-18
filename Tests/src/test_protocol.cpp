@@ -20,7 +20,7 @@ using namespace Weyvelength;
 // The wire encodes a message as its variant index, so the order below IS the
 // protocol. These pins turn the append-only comment in protocol.h into a
 // compile error: inserting or reordering an alternative fails right here.
-static_assert(std::variant_size_v<Proto::ServerMessage> == 31);
+static_assert(std::variant_size_v<Proto::ServerMessage> == 32);
 static_assert(std::is_same_v<std::variant_alternative_t<0, Proto::ServerMessage>, Proto::Heartbeat>);
 static_assert(std::is_same_v<std::variant_alternative_t<1, Proto::ServerMessage>, Proto::AssignClientId>);
 static_assert(std::is_same_v<std::variant_alternative_t<2, Proto::ServerMessage>, Proto::AssignRoomId>);
@@ -52,6 +52,7 @@ static_assert(std::is_same_v<std::variant_alternative_t<27, Proto::ServerMessage
 static_assert(std::is_same_v<std::variant_alternative_t<28, Proto::ServerMessage>, Proto::RoomListingChanged>);
 static_assert(std::is_same_v<std::variant_alternative_t<29, Proto::ServerMessage>, Proto::ListRooms>);
 static_assert(std::is_same_v<std::variant_alternative_t<30, Proto::ServerMessage>, Proto::RoomList>);
+static_assert(std::is_same_v<std::variant_alternative_t<31, Proto::ServerMessage>, Proto::SetName>);
 
 // Same idea for the error enum: the values are wire bytes, append only.
 static_assert((uint8_t)Proto::RoomErrorCode::AlreadyInRoom == 0);
@@ -176,6 +177,20 @@ TEST_CASE("room access events round trip")
 	auto access = std::get<Proto::RoomAccessChanged>(RoundTrip(Proto::RoomAccessChanged{ false, true }));
 	CHECK(access.open == false);
 	CHECK(access.passworded == true);
+}
+
+TEST_CASE("client names round trip on every message that carries one")
+{
+	CHECK(std::get<Proto::SetName>(RoundTrip(Proto::SetName{ "Ada" })).name == "Ada");
+	CHECK(std::get<Proto::SetName>(RoundTrip(Proto::SetName{ "" })).name.empty()); // empty = reset to the default
+
+	auto self = std::get<Proto::AssignClientId>(RoundTrip(Proto::AssignClientId{ 7, "Ada" }));
+	CHECK(self.id == 7);
+	CHECK(self.name == "Ada");
+
+	auto peer = std::get<Proto::PeerJoined>(RoundTrip(Proto::PeerJoined{ 3, Proto::default_client_name }));
+	CHECK(peer.id == 3);
+	CHECK(peer.name == "WEYVE_PLAYER");
 }
 
 TEST_CASE("room listing requests and notices round trip")

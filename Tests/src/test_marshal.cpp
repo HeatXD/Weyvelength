@@ -2,6 +2,7 @@
 
 #include <map>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -11,8 +12,12 @@ using namespace Weyvelength;
 
 // A new alternative that reaches the client needs a case in FillEvent, or it
 // falls through to false; these pins flag a variant or error-enum change.
-static_assert(std::variant_size_v<Proto::ServerMessage> == 31);
+static_assert(std::variant_size_v<Proto::ServerMessage> == 32);
 static_assert((int)WEYVE_ROOM_ERROR_ALREADY_IN_ROOM == (int)Proto::RoomErrorCode::AlreadyInRoom);
+
+// The C header restates these rather than including protocol.h, so pin the copies.
+static_assert(WEYVE_MAX_NAME == Proto::max_client_name);
+static_assert(std::string_view(WEYVE_DEFAULT_NAME) == Proto::default_client_name);
 static_assert((int)WEYVE_ROOM_ERROR_BANNED == (int)Proto::RoomErrorCode::Banned);
 static_assert((int)WEYVE_ROOM_ERROR_RATE_LIMITED == (int)Proto::RoomErrorCode::RateLimited);
 
@@ -69,7 +74,7 @@ TEST_CASE("chat carries the sender and text, spaces included")
 
 TEST_CASE("peer membership events carry the client id")
 {
-	Proto::ServerMessage joined = Proto::PeerJoined{ 3 };
+	Proto::ServerMessage joined = Proto::PeerJoined{ 3, "Ada" };
 	Proto::ServerMessage left = Proto::PeerLeft{ 3 };
 	Proto::ServerMessage host = Proto::HostChanged{ 3 };
 	WeyveEvent e{};
@@ -77,6 +82,8 @@ TEST_CASE("peer membership events carry the client id")
 	REQUIRE(Marshal::FillEvent(joined, &e));
 	CHECK(e.type == WEYVE_EVENT_PEER_JOINED);
 	CHECK(e.data.peer_joined.id == 3);
+	CHECK(std::string(e.data.peer_joined.name, e.data.peer_joined.name_len) == "Ada");
+	CHECK(e.data.peer_joined.name == std::get<Proto::PeerJoined>(joined).name.data());
 
 	REQUIRE(Marshal::FillEvent(left, &e));
 	CHECK(e.type == WEYVE_EVENT_PEER_LEFT);
@@ -163,7 +170,8 @@ TEST_CASE("room listing notices map to their events")
 
 TEST_CASE("client->server and transport variants are not surfaced")
 {
-	CHECK(!Surfaced(Proto::AssignClientId{ 5 }));
+	CHECK(!Surfaced(Proto::AssignClientId{ 5, "Ada" }));
+	CHECK(!Surfaced(Proto::SetName{ "Ada" }));
 	CHECK(!Surfaced(Proto::CreateRoom{}));
 	CHECK(!Surfaced(Proto::JoinRoom{ "ROOMCODE" }));
 	CHECK(!Surfaced(Proto::SetRoomData{ "k", "v" }));
