@@ -63,6 +63,10 @@ namespace Weyvelength {
 		void Run();
 		void Stop();
 
+		// Swaps the set and pushes it to everyone connected; a no-op swap sends
+		// nothing. Safe from any thread. Existing links keep their old config.
+		void SetIceServers(const Proto::IceServers& ice);
+
 	private:
 		void SendTo(uint32_t id, const Proto::ServerMessage& msg);
 		void SendToMany(const std::vector<uint32_t>& ids, const Proto::ServerMessage& msg);

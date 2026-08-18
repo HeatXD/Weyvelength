@@ -1,6 +1,14 @@
+#include <chrono>
+#include <condition_variable>
+#include <cstdint>
 #include <cstdlib>
+#include <ctime>
+#include <fstream>
+#include <mutex>
 #include <iostream>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include <spdlog/async.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -19,7 +27,9 @@ static void PrintUsage()
 		"  --room-list-cooldown-ms MS   default 1000\n"
 		"  --stun-host HOST             default stun.l.google.com; empty disables it\n"
 		"  --stun-port PORT             default 19302\n"
-		"  --turn HOST:PORT:USER:PASS   repeatable\n";
+		"  --turn HOST:PORT:USER:PASS   repeatable\n"
+		"  --ice-file PATH              read stun/turn from a file and reread it as it expires,\n"
+		"                               replacing --stun-host, --stun-port and --turn\n";
 }
 
 // TURN servers arrive as one "host:port:user:pass" argument per --turn flag.
@@ -38,7 +48,138 @@ static bool ParseTurnServer(const std::string& arg, Proto::TurnServer& out)
 	return true;
 }
 
-static bool ParseArgs(int argc, char* argv[], ServerConfig& config)
+// The whole ice config, as an external process writes it:
+//
+//   expires 1755500000
+//   stun stun.l.google.com 19302
+//   turn turn.example.net 3478 1755500000:alice aGVsbG8gd29ybGQ=
+//
+// Space separated, not colon separated like --turn: a coturn REST username is
+// "<expiry>:<name>". The expiry never reaches a client, it only says when to
+// reread; absent means poll.
+struct IceFile {
+	Proto::IceServers ice;
+	int64_t expires = 0; // unix seconds; 0 = no expiry
+};
+
+// Splits on runs of whitespace; fewer fields than asked for is a parse failure.
+static bool SplitFields(const std::string& line, size_t count, std::vector<std::string>& out)
+{
+	out.clear();
+	for (size_t at = 0; out.size() < count;) {
+		size_t start = line.find_first_not_of(" \t", at);
+		if (start == std::string::npos)
+			return false;
+
+		size_t end = line.find_first_of(" \t", start);
+		out.push_back(line.substr(start, end == std::string::npos ? end : end - start));
+		if (end == std::string::npos)
+			break;
+		at = end;
+	}
+	return out.size() == count;
+}
+
+// Any malformed line fails the whole read, leaving the current set in place.
+static bool ParseIceFile(std::istream& in, IceFile& out)
+{
+	std::string line;
+	while (std::getline(in, line)) {
+		if (!line.empty() && line.back() == '\r')
+			line.pop_back(); // written on windows, read anywhere
+
+		size_t start = line.find_first_not_of(" \t");
+		if (start == std::string::npos || line[start] == '#')
+			continue;
+
+		size_t split = line.find_first_of(" \t", start);
+		if (split == std::string::npos)
+			return false;
+
+		std::string keyword = line.substr(start, split - start);
+		std::string value = line.substr(split + 1);
+
+		std::vector<std::string> fields;
+		if (keyword == "expires") {
+			if (!SplitFields(value, 1, fields))
+				return false;
+			out.expires = std::strtoll(fields[0].c_str(), nullptr, 10);
+		} else if (keyword == "stun") {
+			if (!SplitFields(value, 2, fields))
+				return false;
+			out.ice.stun_host = fields[0];
+			out.ice.stun_port = (uint16_t)std::strtoul(fields[1].c_str(), nullptr, 10);
+		} else if (keyword == "turn") {
+			if (!SplitFields(value, 4, fields))
+				return false;
+			out.ice.turn.push_back({ fields[0], (uint16_t)std::strtoul(fields[1].c_str(), nullptr, 10), fields[2], fields[3] });
+		} else {
+			return false;
+		}
+	}
+	return true;
+}
+
+static bool ReadIceFile(const std::string& path, IceFile& out)
+{
+	std::ifstream file{ path };
+	if (!file)
+		return false;
+
+	IceFile parsed;
+	if (!ParseIceFile(file, parsed))
+		return false;
+
+	// A file truncated on a line boundary parses cleanly and describes nothing,
+	// which would otherwise be broadcast over working credentials.
+	if (parsed.ice.stun_host.empty() && parsed.ice.turn.empty())
+		return false;
+
+	out = std::move(parsed);
+	return true;
+}
+
+constexpr auto ice_margin = std::chrono::seconds(300); // reread this long before the credentials expire
+constexpr auto ice_retry = std::chrono::seconds(30); // expiry has not advanced yet, or the read failed
+constexpr auto ice_poll = std::chrono::seconds(300); // no expiry line: nothing to count down to
+constexpr auto ice_max_wait = std::chrono::seconds(3600); // an expiry we cannot believe, e.g. written in milliseconds
+
+static std::chrono::seconds NextIceRead(const IceFile& file)
+{
+	if (file.expires == 0)
+		return ice_poll;
+
+	auto left = std::chrono::seconds(file.expires - (int64_t)std::time(nullptr)) - ice_margin;
+	if (left < ice_retry)
+		return ice_retry; // already inside the margin: the minter has not run yet
+	return left < ice_max_wait ? left : ice_max_wait; // never sleep so long that rotation quietly dies
+}
+
+// Rereads the file as its credentials age. A failed read is never fatal and
+// never blanks working credentials.
+static void RefreshIce(std::stop_token stop, Server& server, std::string path)
+{
+	std::mutex mutex;
+	std::condition_variable_any idle;
+
+	while (!stop.stop_requested()) {
+		IceFile file;
+		std::chrono::seconds wait = ice_retry;
+
+		if (ReadIceFile(path, file)) {
+			server.SetIceServers(file.ice); // sends nothing if nothing moved
+			wait = NextIceRead(file);
+		} else {
+			spdlog::warn("Could not read {}, keeping the current ice servers", path);
+		}
+
+		// Interruptible, so shutdown does not wait out the whole interval.
+		std::unique_lock lock{ mutex };
+		idle.wait_for(lock, stop, wait, [] { return false; });
+	}
+}
+
+static bool ParseArgs(int argc, char* argv[], ServerConfig& config, std::string& ice_path)
 {
 	for (int i = 1; i < argc; i++) {
 		std::string arg = argv[i];
@@ -57,6 +198,8 @@ static bool ParseArgs(int argc, char* argv[], ServerConfig& config)
 			config.ice.stun_host = next();
 		} else if (arg == "--stun-port") {
 			config.ice.stun_port = (uint16_t)std::strtoul(next(), nullptr, 10);
+		} else if (arg == "--ice-file") {
+			ice_path = next();
 		} else if (arg == "--turn") {
 			Proto::TurnServer turn;
 			if (!ParseTurnServer(next(), turn)) {
@@ -75,9 +218,20 @@ static bool ParseArgs(int argc, char* argv[], ServerConfig& config)
 int main(int argc, char* argv[])
 {
 	ServerConfig config{ .port = 5555, .ice = { .stun_host = "stun.l.google.com", .stun_port = 19302 } };
-	if (!ParseArgs(argc, argv, config)) {
+	std::string ice_path;
+	if (!ParseArgs(argc, argv, config, ice_path)) {
 		PrintUsage();
 		return 1;
+	}
+
+	// A bad file at startup is worth failing on; later rereads fail quietly.
+	IceFile ice;
+	if (!ice_path.empty()) {
+		if (!ReadIceFile(ice_path, ice)) {
+			std::cout << "could not read --ice-file " << ice_path << "\n";
+			return 1;
+		}
+		config.ice = ice.ice;
 	}
 
 	// The library logs through the default logger; the app decides what that
@@ -93,6 +247,11 @@ int main(int argc, char* argv[])
 		spdlog::error("Server failed to bind port {}", config.port);
 		return 1;
 	}
+
+	// Joined on the way out: RefreshIce holds a reference to the server.
+	std::jthread refresh;
+	if (!ice_path.empty())
+		refresh = std::jthread{ RefreshIce, std::ref(server), ice_path };
 
 	server.Run();   // blocks, driving the accept/ping/read coroutines
 	return 0;

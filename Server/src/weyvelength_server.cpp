@@ -29,6 +29,36 @@ namespace Weyvelength {
 	constexpr uint32_t id_max_slot = (1u << id_slot_bits) - 1; // 1M concurrent
 	constexpr uint32_t id_generation_step = 1u << id_slot_bits;
 
+	// Control characters go first: a newline in a name would forge log lines.
+	static std::string CleanName(std::string name)
+	{
+		std::erase_if(name, [](unsigned char c) { return c < 0x20 || c == 0x7F; });
+
+		if (name.size() > Proto::max_client_name) {
+			name.resize(Proto::max_client_name);
+			// Back off a cut inside a utf-8 sequence, so no half code point survives.
+			while (!name.empty() && ((unsigned char)name.back() & 0xC0) == 0x80)
+				name.pop_back();
+			if (!name.empty() && ((unsigned char)name.back() & 0xC0) == 0xC0)
+				name.pop_back(); // a lead byte with its continuation bytes cut off
+		}
+
+		return name;
+	}
+
+	// Passwords stay out of the log; the username says which batch is live.
+	static void LogIceServers(const Proto::IceServers& ice)
+	{
+		if (ice.stun_host.empty())
+			spdlog::info("Ice: no stun");
+		else
+			spdlog::info("Ice: stun {}:{}", ice.stun_host, ice.stun_port);
+
+		for (const Proto::TurnServer& turn : ice.turn) {
+			spdlog::info("Ice: turn {}:{} as {}", turn.host, turn.port, turn.username);
+		}
+	}
+
 	static std::string MakeRoomCode(uint32_t length)
 	{
 		static std::mt19937 rng{ std::random_device{}() };
@@ -66,6 +96,7 @@ namespace Weyvelength {
 		if (ec) return false;
 
 		spdlog::info("Listening on port {}", config.port);
+		LogIceServers(_config.ice);
 		return true;
 	}
 
@@ -78,6 +109,22 @@ namespace Weyvelength {
 	void Server::Stop()
 	{
 		_context.stop();
+	}
+
+	void Server::SetIceServers(const Proto::IceServers& ice)
+	{
+		asio::post(_context, [this, ice]() {
+			if (ice == _config.ice)
+				return; // nothing moved, so nobody needs telling
+
+			_config.ice = ice;
+			for (const auto& [id, conn] : _connections) {
+				SendTo(id, _config.ice);
+			}
+
+			spdlog::info("Ice servers swapped, told {} client(s)", _connections.size());
+			LogIceServers(_config.ice);
+		});
 	}
 
 	asio::awaitable<void> Server::AcceptLoop()
@@ -412,7 +459,8 @@ namespace Weyvelength {
 			return;
 		}
 
-		conn->name = msg.name.empty() ? Proto::default_client_name : msg.name.substr(0, Proto::max_client_name);
+		std::string name = CleanName(msg.name);
+		conn->name = name.empty() ? Proto::default_client_name : std::move(name);
 		SendTo(conn->id, Proto::AssignClientId{ conn->id, conn->name }); // the ack is the new pairing
 
 		spdlog::info("Client {} is now {}", conn->id, conn->name);

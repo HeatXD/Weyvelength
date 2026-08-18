@@ -154,12 +154,17 @@ namespace Weyvelength::Proto {
 		uint16_t port = 0;
 		std::string username;
 		std::string password;
+
+		bool operator==(const TurnServer&) const = default;
 	};
 
-	struct IceServers { // server -> client: sent once after connect
+	// server -> client: sent on connect, and again on every swap
+	struct IceServers {
 		std::string stun_host; // empty = no stun
 		uint16_t stun_port = 0;
 		std::vector<TurnServer> turn;
+
+		bool operator==(const IceServers&) const = default;
 	};
 
 	// All traffic on the server connection, both directions. Only append new
