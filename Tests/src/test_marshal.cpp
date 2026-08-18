@@ -11,7 +11,7 @@ using namespace Weyvelength;
 
 // A new alternative that reaches the client needs a case in FillEvent, or it
 // falls through to false; these pins flag a variant or error-enum change.
-static_assert(std::variant_size_v<Proto::ServerMessage> == 31);
+static_assert(std::variant_size_v<Proto::ServerMessage> == 32);
 static_assert((int)WEYVE_ROOM_ERROR_ALREADY_IN_ROOM == (int)Proto::RoomErrorCode::AlreadyInRoom);
 static_assert((int)WEYVE_ROOM_ERROR_BANNED == (int)Proto::RoomErrorCode::Banned);
 static_assert((int)WEYVE_ROOM_ERROR_RATE_LIMITED == (int)Proto::RoomErrorCode::RateLimited);
