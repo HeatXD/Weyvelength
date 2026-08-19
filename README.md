@@ -1,11 +1,11 @@
 # Weyvelength
 ### C/C++ Rooms and Peer To Peer Networking SDK
 
-Weyvelength gets players into a room together and then out of your way.
+Weyvelength is a networking SDK for games and other real time applications. It consists of a control server and a client library with a plain C API.
 
-You run one small relay server. Players connect, create or join a room by code, and the server keeps everyone's view of that room in sync: who is in it, who hosts it, whatever metadata you hang off it. It also relays the ICE signaling peers need to find each other, and [libjuice](https://github.com/paullouisageneau/libjuice) opens a direct UDP path between them, punching through NATs along the way.
+The server hosts rooms. Clients create or join one by code, and the server keeps every member's view of the room in sync: membership, host, room and per member metadata, chat. Rooms can be password protected, closed to new joiners, or listed in a public browser.
 
-You drive it through a plain C API. A room holds any number of players, and you address each by peer id. The first message you send someone opens a direct link to them, and nothing is negotiated for peers you never talk to. What you put in those bytes is up to you.
+The server also carries the ICE signaling between room members, and [libjuice](https://github.com/paullouisageneau/libjuice) uses it to open direct UDP connections through NATs. Peers are addressed by id, a link is negotiated on the first message sent to a peer, and the payload format is left to the application. Application traffic never passes through the server.
 
 ## Project Goals
 ### Done
@@ -24,7 +24,7 @@ You drive it through a plain C API. A room holds any number of players, and you 
 	- A display name, fixed while in a room, carried alongside the id everywhere it appears
 - Peer to peer connections
 	- Direct links to any room member, opened by the first message you send them
-	- ICE negotiation relayed through the server, no signaling service of your own
+	- ICE negotiation forwarded through the server, no signaling service of your own
 	- Configurable STUN/TURN servers, handed to clients by the server
 	- Credentials that rotate while the server keeps running
 - Poll based event system, no callbacks across the C boundary
