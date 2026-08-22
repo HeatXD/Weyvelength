@@ -303,6 +303,12 @@ uint32_t weyve_room_list_members(const WeyveClient* client, uint32_t room)
 	return info ? info->members : 0;
 }
 
+bool weyve_room_list_joinable(const WeyveClient* client, uint32_t room)
+{
+	const auto* info = Marshal::RoomAt(client->client.RoomList(), room);
+	return info && info->open;
+}
+
 bool weyve_room_list_passworded(const WeyveClient* client, uint32_t room)
 {
 	const auto* info = Marshal::RoomAt(client->client.RoomList(), room);

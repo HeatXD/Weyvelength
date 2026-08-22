@@ -257,6 +257,7 @@ WEYVE_API uint32_t weyve_room_list_count(const WeyveClient* client);
 
 WEYVE_API const char* weyve_room_list_id(const WeyveClient* client, uint32_t room, uint32_t* len); // the code to join with
 WEYVE_API uint32_t weyve_room_list_members(const WeyveClient* client, uint32_t room);
+WEYVE_API bool weyve_room_list_joinable(const WeyveClient* client, uint32_t room);
 WEYVE_API bool weyve_room_list_passworded(const WeyveClient* client, uint32_t room);
 
 // All a non-member sees of a browsed room.

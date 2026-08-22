@@ -121,7 +121,9 @@ static void PrintRoomList(WeyveClient* client)
 		uint32_t id_len = 0;
 		const char* id = weyve_room_list_id(client, i, &id_len);
 		std::cout << "  " << std::string(id, id_len);
-		std::cout << " (" << weyve_room_list_members(client, i) << " in" << (weyve_room_list_passworded(client, i) ? ", password" : "") << ")";
+		std::cout << " (" << weyve_room_list_members(client, i) << " in"
+			<< (weyve_room_list_joinable(client, i) ? "" : ", closed")
+			<< (weyve_room_list_passworded(client, i) ? ", password" : "") << ")";
 
 		for (uint32_t j = 0, keys = weyve_room_list_listing_count(client, i); j < keys; j++) {
 			uint32_t key_len = 0, value_len = 0;

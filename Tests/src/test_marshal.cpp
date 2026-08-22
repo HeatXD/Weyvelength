@@ -158,7 +158,7 @@ TEST_CASE("room listing notices map to their events")
 	CHECK(e.data.room_listing.value_len == 0);
 
 	// The reply event is a summary; the rooms themselves live in the client cache.
-	Proto::ServerMessage list = Proto::RoomList{ { { "VY4C3NB9", 3, true, { { "mode", "ranked" } } } } };
+	Proto::ServerMessage list = Proto::RoomList{ { { "VY4C3NB9", 3, false, true, { { "mode", "ranked" } } } } };
 	REQUIRE(Marshal::FillEvent(list, &e));
 	CHECK(e.type == WEYVE_EVENT_ROOM_LIST);
 	CHECK(e.data.room_list.count == 1);
@@ -216,10 +216,12 @@ TEST_CASE("Find returns the value, an unset key is null")
 
 TEST_CASE("RoomAt indexes the browsed rooms, past the end is null")
 {
-	std::vector<Proto::RoomInfo> rooms{ { "VY4C3NB9", 3, true, {} }, { "ZK7QD2XM", 1, false, {} } };
+	std::vector<Proto::RoomInfo> rooms{ { "VY4C3NB9", 3, false, true, {} }, { "ZK7QD2XM", 1, true, false, {} } };
 
 	REQUIRE(Marshal::RoomAt(rooms, 1) != nullptr);
 	CHECK(Marshal::RoomAt(rooms, 1)->id == "ZK7QD2XM");
+	CHECK(Marshal::RoomAt(rooms, 0)->open == false);
+	CHECK(Marshal::RoomAt(rooms, 1)->open == true);
 	CHECK(Marshal::RoomAt(rooms, 2) == nullptr);
 	CHECK(Marshal::RoomAt({}, 0) == nullptr);
 }

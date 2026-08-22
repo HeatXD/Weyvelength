@@ -691,7 +691,7 @@ namespace Weyvelength {
 	// All a non-member sees; room data and the password stay server-side.
 	static Proto::RoomInfo DescribeRoom(const Room& room)
 	{
-		return { room.id, (uint32_t)room.members.size(), !room.password.empty(), room.listing };
+		return { room.id, (uint32_t)room.members.size(), room.open, !room.password.empty(), room.listing };
 	}
 
 	// Slots only: a value not in a slot is unsearchable, not just unpublished.
@@ -739,7 +739,7 @@ namespace Weyvelength {
 		Proto::RoomList list;
 
 		for (const auto& [code, room] : _rooms) {
-			if (!room.listed || !room.open) // a room nobody can join is not worth browsing
+			if (!room.listed)
 				continue;
 
 			// filter first: a miss never pays for its own copy

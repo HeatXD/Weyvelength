@@ -129,6 +129,7 @@ namespace Weyvelength::Proto {
 	struct RoomInfo { // one listed room; the password is never included, only the flag
 		std::string id;
 		uint32_t members = 0;
+		bool open = true;
 		bool passworded = false;
 		std::map<std::string, std::string> listing;
 	};

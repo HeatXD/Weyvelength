@@ -77,7 +77,7 @@ static_assert((uint8_t)Proto::RoomFilterOp::Equals == 1);
 
 // A reply carries every match, so the reassembly cap is the only ceiling.
 // Pins roughly how many rooms fit, assuming ids stay under 64 bytes.
-constexpr size_t worst_room_bytes = 13 + 64
+constexpr size_t worst_room_bytes = 14 + 64
 	+ Proto::max_room_listing_keys * (8 + Proto::max_room_listing_key + Proto::max_room_listing_value);
 static_assert(Proto::max_reassembled_size / worst_room_bytes >= 60);
 
@@ -222,20 +222,22 @@ TEST_CASE("room listing requests and notices round trip")
 
 TEST_CASE("room lists round trip with their listing slots")
 {
-	Proto::RoomList list{ { { "VY4C3NB9", 3, true, { { "mode", "ranked" }, { "stage", "training" } } },
-							{ "ZK7QD2XM", 1, false, {} } } };
+	Proto::RoomList list{ { { "VY4C3NB9", 3, false, true, { { "mode", "ranked" }, { "stage", "training" } } },
+							{ "ZK7QD2XM", 1, true, false, {} } } };
 
 	auto out = std::get<Proto::RoomList>(RoundTrip(list));
 	REQUIRE(out.rooms.size() == 2);
 
 	CHECK(out.rooms[0].id == "VY4C3NB9");
 	CHECK(out.rooms[0].members == 3);
+	CHECK(out.rooms[0].open == false);
 	CHECK(out.rooms[0].passworded == true);
 	REQUIRE(out.rooms[0].listing.size() == 2);
 	CHECK(out.rooms[0].listing.at("mode") == "ranked");
 	CHECK(out.rooms[0].listing.at("stage") == "training");
 
 	CHECK(out.rooms[1].members == 1);
+	CHECK(out.rooms[1].open == true);
 	CHECK(out.rooms[1].passworded == false);
 	CHECK(out.rooms[1].listing.empty());
 
@@ -245,7 +247,7 @@ TEST_CASE("room lists round trip with their listing slots")
 TEST_CASE("a reply of maxed-out rooms fits what a peer will reassemble")
 {
 	// the static_assert above, against the real encoder
-	Proto::RoomInfo entry{ std::string(64, 'R'), 0xFFFFFFFF, true, {} };
+	Proto::RoomInfo entry{ std::string(64, 'R'), 0xFFFFFFFF, false, true, {} };
 	for (uint32_t i = 0; i < Proto::max_room_listing_keys; i++) {
 		entry.listing.emplace(std::to_string(i) + std::string(Proto::max_room_listing_key - 1, 'k'),
 			std::string(Proto::max_room_listing_value, 'v'));
