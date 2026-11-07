@@ -24,6 +24,7 @@ namespace Weyvelength {
 		uint16_t port = 0;
 		uint32_t room_code_length = 0; // 0 = use the default (8)
 		uint32_t room_list_cooldown_ms = 0; // 0 = use the default (1000)
+		uint32_t max_queued_bytes = 0; // 0 = use the default (1 MiB); a client further behind is dropped
 		Proto::IceServers ice; // stun/turn handed to every client on connect
 	};
 
@@ -34,6 +35,7 @@ namespace Weyvelength {
 		asio::ip::tcp::socket socket;
 
 		std::deque<std::vector<std::byte>> out; // outbound queue; WriteLoop is the sole writer
+		size_t queued = 0; // bytes in out plus the frame being written
 		asio::steady_timer wake; // cancel() signals "out has work"
 		bool closing = false;
 		std::chrono::steady_clock::time_point last_list{}; // epoch = never asked

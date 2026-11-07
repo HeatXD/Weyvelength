@@ -17,8 +17,20 @@ using asio::use_awaitable;
 
 namespace Weyvelength {
 
-	static void Enqueue(const std::shared_ptr<Connection>& conn, std::vector<std::byte> frame)
+	// Closing the socket ends the session; ReadLoop's error runs the cleanup.
+	static void Enqueue(const std::shared_ptr<Connection>& conn, std::vector<std::byte> frame, size_t cap)
 	{
+		if (!conn->socket.is_open())
+			return;
+
+		if (conn->queued + frame.size() > cap) {
+			spdlog::warn("Client {} dropped: send queue over {} bytes", conn->id, cap);
+			asio::error_code ec;
+			conn->socket.close(ec);
+			return;
+		}
+
+		conn->queued += frame.size();
 		conn->out.push_back(std::move(frame));
 		conn->wake.cancel();
 	}
@@ -78,6 +90,8 @@ namespace Weyvelength {
 			_config.room_code_length = 8;
 		if (_config.room_list_cooldown_ms == 0)
 			_config.room_list_cooldown_ms = 1000;
+		if (_config.max_queued_bytes == 0)
+			_config.max_queued_bytes = 1024 * 1024;
 
 		asio::error_code ec;
 
@@ -217,6 +231,7 @@ namespace Weyvelength {
 				std::vector<std::byte> frame = std::move(conn->out.front());
 				conn->out.pop_front();
 				co_await asio::async_write(conn->socket, asio::buffer(frame), use_awaitable);
+				conn->queued -= frame.size();
 			}
 		}
 		catch (...) {
@@ -227,7 +242,7 @@ namespace Weyvelength {
 	{
 		auto it = _connections.find(id);
 		if (it != _connections.end()) {
-			Enqueue(it->second, std::move(frame));
+			Enqueue(it->second, std::move(frame), _config.max_queued_bytes);
 		}
 	}
 
@@ -737,6 +752,7 @@ namespace Weyvelength {
 		}
 
 		Proto::RoomList list;
+		size_t used = 0;
 
 		for (const auto& [code, room] : _rooms) {
 			if (!room.listed)
@@ -746,7 +762,8 @@ namespace Weyvelength {
 			if (!std::ranges::all_of(msg.filters, [&](const Proto::RoomFilter& filter) { return MatchesFilter(room.listing, filter); }))
 				continue;
 
-			list.rooms.push_back(DescribeRoom(room));
+			if (!Proto::AppendRoom(list, used, DescribeRoom(room)))
+				break; // full: the rest would not fit in one message
 		}
 
 		spdlog::debug("Client {} listed {} rooms", conn->id, list.rooms.size());

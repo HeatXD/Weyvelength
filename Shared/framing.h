@@ -46,6 +46,28 @@ namespace Weyvelength::Proto {
 		return frames;
 	}
 
+	inline size_t EncodedSize(const auto& value)
+	{
+		std::vector<std::byte> bytes;
+		zpp::bits::out{ bytes }(value).or_throw();
+		return bytes.size();
+	}
+
+	// Adds rooms while the list still decodes on the client; false = it was full.
+	inline bool AppendRoom(RoomList& list, size_t& used, RoomInfo room)
+	{
+		if (used == 0)
+			used = EncodedSize(ServerMessage{ RoomList{} });
+
+		size_t size = EncodedSize(room);
+		if (used + size > max_reassembled_size)
+			return false;
+
+		used += size;
+		list.rooms.push_back(std::move(room));
+		return true;
+	}
+
 	// Splits a frame header into its fragment length and more-fragments flag.
 	// False if the bytes are unreadable or the length exceeds max_message_size.
 	inline bool DecodeFrameHeader(std::span<const std::byte> header, uint32_t& len, bool& more)
