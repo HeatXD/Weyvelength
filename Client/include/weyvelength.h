@@ -176,7 +176,7 @@ WEYVE_API bool weyve_set_name(WeyveClient* client, const char* name);
 // --- rooms ---
 
 WEYVE_API bool weyve_create_room(WeyveClient* client); // -> WEYVE_EVENT_ROOM_ID_ASSIGNED or WEYVE_EVENT_ROOM_ERROR
-WEYVE_API bool weyve_join_room(WeyveClient* client, const char* id, const char* password); // password may be null or ""
+WEYVE_API bool weyve_join_room(WeyveClient* client, const char* id, const char* password); // password may be null or ""; RATE_LIMITED for a moment after a failed join
 WEYVE_API bool weyve_leave_room(WeyveClient* client); // -> WEYVE_EVENT_PEER_LEFT carrying your own id
 
 WEYVE_API bool weyve_kick_member(WeyveClient* client, uint32_t id); // host-only
