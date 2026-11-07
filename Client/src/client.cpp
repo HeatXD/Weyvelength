@@ -15,6 +15,9 @@
 #include "p2p_mesh.h"
 
 namespace Weyvelength {
+	constexpr auto keepalive_interval = std::chrono::seconds(10); // well inside the server's default 30 s idle timeout
+	constexpr uint64_t keepalive_stamp = UINT64_MAX; // marks our own heartbeats; their pongs stay internal
+
 	struct ClientAsioImpl {
 		asio::io_context context;
 		asio::ip::tcp::socket socket{ context };
@@ -46,6 +49,8 @@ namespace Weyvelength {
 		if (ec) return false;
 
 		impl.socket.non_blocking(true, ec);
+		_last_sent = std::chrono::steady_clock::now();
+		_keepalives = 0;
 		return !ec;
 	}
 
@@ -58,6 +63,7 @@ namespace Weyvelength {
 			return false;
 
 		PollPeers(); // may queue signal frames; the flush below sends them
+		KeepAlive();
 		return FlushServer();
 	}
 
@@ -75,7 +81,17 @@ namespace Weyvelength {
 	{
 		auto frame = Proto::FrameMessage(msg);
 		_asio->tx.insert(_asio->tx.end(), frame.begin(), frame.end());
+		_last_sent = std::chrono::steady_clock::now();
 		return true;
+	}
+
+	void Client::KeepAlive()
+	{
+		if (std::chrono::steady_clock::now() - _last_sent < keepalive_interval)
+			return;
+
+		SendServer(Proto::Heartbeat{ keepalive_stamp });
+		_keepalives++;
 	}
 
 	bool Client::SetName(const std::string& name)
@@ -318,6 +334,9 @@ namespace Weyvelength {
 			}
 			else if (auto* signal = std::get_if<Proto::P2PSignal>(&msg)) {
 				HandleP2PSignal(*signal);   // ICE plumbing; not surfaced via Next()
+			}
+			else if (auto* beat = std::get_if<Proto::Heartbeat>(&msg); beat && beat->timestamp == keepalive_stamp && _keepalives > 0) {
+				_keepalives--;   // our keepalive's pong; not surfaced via Next()
 			}
 			else {
 				CacheRoomState(msg); // cached for the accessors, but still surfaced via Next()
