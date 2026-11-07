@@ -26,6 +26,8 @@ namespace Weyvelength {
 		uint32_t room_list_cooldown_ms = 0; // 0 = use the default (1000)
 		uint32_t join_cooldown_ms = 0; // 0 = use the default (1000); wait after a failed join
 		uint32_t max_queued_bytes = 0; // 0 = use the default (1 MiB); a client further behind is dropped
+		uint32_t max_conns_per_ip = 0; // 0 = use the default (16)
+		uint32_t max_room_members = 0; // 0 = use the default (64)
 		Proto::IceServers ice; // stun/turn handed to every client on connect
 	};
 
@@ -34,6 +36,7 @@ namespace Weyvelength {
 		std::string room; // empty = not in a room
 		std::string name = Proto::default_client_name; // never empty; fixed while in a room
 		asio::ip::tcp::socket socket;
+		asio::ip::address address; // the peer, counted against max_conns_per_ip
 
 		std::deque<std::vector<std::byte>> out; // outbound queue; WriteLoop is the sole writer
 		size_t queued = 0; // bytes in out plus the frame being written
@@ -111,6 +114,7 @@ namespace Weyvelength {
 
 		std::unordered_map<uint32_t, std::shared_ptr<Connection>> _connections;
 		std::unordered_map<std::string, Room> _rooms;
+		std::unordered_map<asio::ip::address, uint32_t> _per_address; // open connections per peer address
 
 		std::deque<uint32_t> _free_ids; // released ids, generation already bumped; FIFO so reuse is delayed
 		uint32_t _next_slot = 1;   // slots never yet handed out; 0 reserved as "none"

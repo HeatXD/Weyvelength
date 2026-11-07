@@ -94,6 +94,10 @@ namespace Weyvelength {
 			_config.join_cooldown_ms = 1000;
 		if (_config.max_queued_bytes == 0)
 			_config.max_queued_bytes = 1024 * 1024;
+		if (_config.max_conns_per_ip == 0)
+			_config.max_conns_per_ip = 16;
+		if (_config.max_room_members == 0)
+			_config.max_room_members = 64;
 
 		asio::error_code ec;
 
@@ -148,15 +152,30 @@ namespace Weyvelength {
 		while (true) {
 			asio::ip::tcp::socket socket = co_await _acceptor.async_accept(use_awaitable);
 
+			asio::error_code ec;
+			asio::ip::address address = socket.remote_endpoint(ec).address();
+			if (ec) {
+				socket.close(ec); // the peer is already gone
+				continue;
+			}
+
+			auto open = _per_address.find(address);
+			if (open != _per_address.end() && open->second >= _config.max_conns_per_ip) {
+				spdlog::warn("Refusing connection: {} already has {} open", address.to_string(), open->second);
+				socket.close(ec);
+				continue;
+			}
+
 			uint32_t id = AllocateId();   // single-threaded io_context: no lock needed
 			if (id == 0) {
 				spdlog::warn("Refusing connection: no client ids left");
-				asio::error_code ec;
 				socket.close(ec);
 				continue;
 			}
 
 			auto conn = std::make_shared<Connection>(id, std::move(socket));
+			conn->address = address;
+			_per_address[address]++;
 			_connections.emplace(id, conn);
 
 			spdlog::info("Client {} connected", id);
@@ -186,6 +205,8 @@ namespace Weyvelength {
 		LeaveRoom(conn);
 		_connections.erase(conn->id);
 		ReleaseId(conn->id);
+		if (--_per_address[conn->address] == 0)
+			_per_address.erase(conn->address);
 
 		spdlog::info("Client {} disconnected", conn->id);
 	}
@@ -381,6 +402,9 @@ namespace Weyvelength {
 
 		if (!room.password.empty() && msg.password != room.password)
 			return fail(Proto::RoomErrorCode::BadPassword);
+
+		if (room.members.size() >= _config.max_room_members)
+			return fail(Proto::RoomErrorCode::RoomClosed); // full: not joinable right now
 
 		SendToMany(room.members, Proto::PeerJoined{ conn->id, conn->name });
 
