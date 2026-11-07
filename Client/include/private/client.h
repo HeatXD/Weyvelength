@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -89,6 +90,7 @@ namespace Weyvelength {
 		bool CarveServer();
 		bool FlushServer();
 		bool DisconnectServer();
+		void KeepAlive(); // a heartbeat after a quiet spell, so the server's idle timeout never fires
 
 		void CacheRoomState(const Proto::ServerMessage& msg);
 		void ClearRoomState();
@@ -113,6 +115,9 @@ namespace Weyvelength {
 		std::unique_ptr<P2PMesh> _mesh;
 
 		Proto::IceServers _ice; // handed to us by the server; feeds every new link
+
+		std::chrono::steady_clock::time_point _last_sent{};
+		uint32_t _keepalives = 0; // our own heartbeats still awaiting their pong, which Next() never shows
 
 		std::queue<Proto::ServerMessage> _inbox;
 		std::queue<std::pair<uint32_t, Proto::P2PMessage>> _p2p_inbox;
