@@ -38,7 +38,7 @@ typedef enum WeyveRoomError {
 	WEYVE_ROOM_ERROR_NOT_HOST, // host-only action attempted by a non-host
 	WEYVE_ROOM_ERROR_BAD_ROOM_DATA, // key/value over the size limits, or too many keys
 	WEYVE_ROOM_ERROR_NO_SUCH_MEMBER, // target id is not another member of the room
-	WEYVE_ROOM_ERROR_ROOM_CLOSED, // the room is not joinable right now
+	WEYVE_ROOM_ERROR_ROOM_CLOSED, // the room is not joinable right now: closed by the host, or full
 	WEYVE_ROOM_ERROR_BAD_PASSWORD, // wrong password on join, or an over-long one on set
 	WEYVE_ROOM_ERROR_BANNED, // the host has barred this client from the room
 	WEYVE_ROOM_ERROR_RATE_LIMITED, // asked again too soon; retry later
