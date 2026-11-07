@@ -105,7 +105,7 @@ namespace {
 		REQUIRE(remaining.empty()); // no bytes past the final fragment
 
 		Proto::ServerMessage out;
-		REQUIRE(!failure(zpp::bits::in{ body }(out)));
+		REQUIRE(Proto::DecodeMessage(body, out));
 		REQUIRE(out.index() == msg.index());
 		return out;
 	}
@@ -353,4 +353,14 @@ TEST_CASE("frame headers over the cap are rejected, reassembly is capped")
 	std::vector<std::byte> body(Proto::max_reassembled_size - 10);
 	std::array<std::byte, 20> extra{};
 	CHECK(!Proto::AppendFragment(body, extra)); // one byte over the reassembly cap fails
+}
+
+TEST_CASE("a body claiming a huge container is rejected before allocating")
+{
+	auto set_name = (uint8_t)Proto::ServerMessage{ Proto::SetName{} }.index();
+	std::vector<std::byte> body;
+	zpp::bits::out{ body }(set_name, uint32_t{ 300u * 1024 * 1024 }).or_throw();
+
+	Proto::ServerMessage msg;
+	CHECK(!Proto::DecodeMessage(body, msg));
 }
