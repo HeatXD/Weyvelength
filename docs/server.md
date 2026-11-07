@@ -15,6 +15,9 @@ One executable, no dependencies, no state on disk. Rooms live in memory and die 
 | `--room-list-cooldown-ms MS` | `1000` | How often one client may ask for the room list |
 | `--join-cooldown-ms MS` | `1000` | How long a client waits after a failed join before trying again |
 | `--max-queued-bytes N` | `1048576` | Unsent bytes a client may fall behind before it is dropped |
+| `--max-conns-per-ip N` | `16` | Open connections one address may hold |
+| `--max-room-members N` | `64` | Clients one room may hold |
+| `--log-level LEVEL` | `info` | `trace`, `debug`, `info`, `warn`, `error` or `off` |
 | `--stun-host HOST` | `stun.l.google.com` | STUN server handed to clients; empty disables it |
 | `--stun-port PORT` | `19302` | Port for the above |
 | `--turn HOST:PORT:USER:PASS` | none | A TURN server; repeatable |
@@ -43,8 +46,16 @@ Two requests are limited per client, both answered with `WEYVE_ROOM_ERROR_RATE_L
 
 A room list reply holds as many matching rooms as fit in one message, so a busy server returns a partial list.
 
-A client that stops reading is dropped once `--max-queued-bytes` of replies and broadcasts pile up for it. Nothing else is limited, so put connection level protection in front if it faces the open internet.
+A client that stops reading is dropped once `--max-queued-bytes` of replies and broadcasts pile up for it.
+
+## Connection and room limits
+
+One address may hold `--max-conns-per-ip` connections at once, and further ones are closed right after accepting. Players behind one NAT share an address, so raise it for LAN events or carrier grade NAT.
+
+A room holds at most `--max-room-members` clients. Joining a full room answers `WEYVE_ROOM_ERROR_ROOM_CLOSED`, the same as a room the host closed, and only after the password check passes.
+
+There is no idle timeout yet, so put connection level protection in front if it faces the open internet.
 
 ## Logging
 
-spdlog to stdout at debug level, flushed per message. Peer to peer signaling logs at debug, which is loud but useful while getting NAT traversal working.
+spdlog to stdout, flushed per message, at `--log-level` (default `info`). Peer to peer signaling and name changes log at `debug`, which is loud but useful while getting NAT traversal working. Signal payloads hold ICE credentials and local addresses, so keep `debug` off on a public server.

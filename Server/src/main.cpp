@@ -27,6 +27,9 @@ static void PrintUsage()
 		"  --room-list-cooldown-ms MS   default 1000\n"
 		"  --join-cooldown-ms MS        default 1000; wait after a failed join\n"
 		"  --max-queued-bytes N         default 1048576; drop a client this far behind\n"
+		"  --max-conns-per-ip N         default 16\n"
+		"  --max-room-members N         default 64\n"
+		"  --log-level LEVEL            default info; trace, debug, info, warn, error or off\n"
 		"  --stun-host HOST             default stun.l.google.com; empty disables it\n"
 		"  --stun-port PORT             default 19302\n"
 		"  --turn HOST:PORT:USER:PASS   repeatable\n"
@@ -181,7 +184,7 @@ static void RefreshIce(std::stop_token stop, Server& server, std::string path)
 	}
 }
 
-static bool ParseArgs(int argc, char* argv[], ServerConfig& config, std::string& ice_path)
+static bool ParseArgs(int argc, char* argv[], ServerConfig& config, std::string& ice_path, spdlog::level::level_enum& log_level)
 {
 	for (int i = 1; i < argc; i++) {
 		std::string arg = argv[i];
@@ -200,6 +203,17 @@ static bool ParseArgs(int argc, char* argv[], ServerConfig& config, std::string&
 			config.join_cooldown_ms = (uint32_t)std::strtoul(next(), nullptr, 10);
 		} else if (arg == "--max-queued-bytes") {
 			config.max_queued_bytes = (uint32_t)std::strtoul(next(), nullptr, 10);
+		} else if (arg == "--max-conns-per-ip") {
+			config.max_conns_per_ip = (uint32_t)std::strtoul(next(), nullptr, 10);
+		} else if (arg == "--max-room-members") {
+			config.max_room_members = (uint32_t)std::strtoul(next(), nullptr, 10);
+		} else if (arg == "--log-level") {
+			std::string name = next();
+			log_level = spdlog::level::from_str(name);
+			if (log_level == spdlog::level::off && name != "off") { // from_str falls back to off
+				std::cout << "bad --log-level value, expected trace, debug, info, warn, error or off\n";
+				return false;
+			}
 		} else if (arg == "--stun-host") {
 			config.ice.stun_host = next();
 		} else if (arg == "--stun-port") {
@@ -225,7 +239,8 @@ int main(int argc, char* argv[])
 {
 	ServerConfig config{ .port = 5555, .ice = { .stun_host = "stun.l.google.com", .stun_port = 19302 } };
 	std::string ice_path;
-	if (!ParseArgs(argc, argv, config, ice_path)) {
+	spdlog::level::level_enum log_level = spdlog::level::info;
+	if (!ParseArgs(argc, argv, config, ice_path, log_level)) {
 		PrintUsage();
 		return 1;
 	}
@@ -245,7 +260,7 @@ int main(int argc, char* argv[])
 	// message so redirected output stays live.
 	spdlog::init_thread_pool(8192, 1);
 	spdlog::set_default_logger(spdlog::create_async<spdlog::sinks::stdout_color_sink_mt>("weyvelength"));
-	spdlog::set_level(spdlog::level::debug); // dev server: show the p2p signal traffic
+	spdlog::set_level(log_level); // debug shows the p2p signal traffic
 	spdlog::flush_on(spdlog::level::debug);
 
 	Server server;
