@@ -73,7 +73,7 @@ namespace Weyvelength {
 
 	static std::string MakeRoomCode(uint32_t length)
 	{
-		static std::mt19937 rng{ std::random_device{}() };
+		static std::random_device rng; // the os csprng: a code is the only guard on an unlisted room
 		static constexpr char alphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I
 		std::uniform_int_distribution<size_t> pick{ 0, sizeof(alphabet) - 2 };
 
