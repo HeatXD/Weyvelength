@@ -13,6 +13,7 @@ One executable, no dependencies, no state on disk. Rooms live in memory and die 
 | `--port PORT` | `5555` | TCP port to listen on |
 | `--room-code-length N` | `8` | Characters in a generated room code |
 | `--room-list-cooldown-ms MS` | `1000` | How often one client may ask for the room list |
+| `--max-queued-bytes N` | `1048576` | Unsent bytes a client may fall behind before it is dropped |
 | `--stun-host HOST` | `stun.l.google.com` | STUN server handed to clients; empty disables it |
 | `--stun-port PORT` | `19302` | Port for the above |
 | `--turn HOST:PORT:USER:PASS` | none | A TURN server; repeatable |
@@ -34,7 +35,9 @@ Never persist a client id or key anything durable off one. Ban lists are per roo
 
 ## Rate limiting
 
-`ListRooms` is the only limited request, one per `--room-list-cooldown-ms` per client, returning `WEYVE_ROOM_ERROR_RATE_LIMITED` when asked sooner. Nothing else is limited, so put connection level protection in front if it faces the open internet.
+`ListRooms` is the only limited request, one per `--room-list-cooldown-ms` per client, returning `WEYVE_ROOM_ERROR_RATE_LIMITED` when asked sooner. A reply holds as many matching rooms as fit in one message, so a busy server returns a partial list.
+
+A client that stops reading is dropped once `--max-queued-bytes` of replies and broadcasts pile up for it. Nothing else is limited, so put connection level protection in front if it faces the open internet.
 
 ## Logging
 
