@@ -488,10 +488,7 @@ namespace Weyvelength {
 			return;
 		}
 
-		// a size summary at info; the payload (ice creds, local ips) only at debug
-		if (msg.kind == Proto::P2PSignalKind::Description)
-			spdlog::info("c{} -> c{} p2p description ({} bytes)", conn->id, msg.id, msg.payload.size());
-		spdlog::debug("c{} -> c{} p2p {}: {}", conn->id, msg.id, P2PSignalKindName(msg.kind), msg.payload);
+		spdlog::debug("c{} -> c{} p2p {}: {}", conn->id, msg.id, P2PSignalKindName(msg.kind), msg.payload); // ice creds and local ips: debug only
 		SendTo(msg.id, Proto::P2PSignal{ conn->id, msg.kind, msg.payload }); // forwarded carrying the sender's id
 	}
 
@@ -508,7 +505,7 @@ namespace Weyvelength {
 		conn->name = name.empty() ? Proto::default_client_name : std::move(name);
 		SendTo(conn->id, Proto::AssignClientId{ conn->id, conn->name }); // the ack is the new pairing
 
-		spdlog::info("Client {} is now {}", conn->id, conn->name);
+		spdlog::debug("Client {} is now {}", conn->id, conn->name);
 	}
 
 	void Server::HandleSetRoomData(const std::shared_ptr<Connection>& conn, const Proto::SetRoomData& msg)
