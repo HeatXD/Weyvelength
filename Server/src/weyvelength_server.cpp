@@ -737,6 +737,7 @@ namespace Weyvelength {
 		}
 
 		Proto::RoomList list;
+		size_t used = 0;
 
 		for (const auto& [code, room] : _rooms) {
 			if (!room.listed)
@@ -746,7 +747,8 @@ namespace Weyvelength {
 			if (!std::ranges::all_of(msg.filters, [&](const Proto::RoomFilter& filter) { return MatchesFilter(room.listing, filter); }))
 				continue;
 
-			list.rooms.push_back(DescribeRoom(room));
+			if (!Proto::AppendRoom(list, used, DescribeRoom(room)))
+				break; // full: the rest would not fit in one message
 		}
 
 		spdlog::debug("Client {} listed {} rooms", conn->id, list.rooms.size());
