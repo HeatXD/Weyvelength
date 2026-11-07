@@ -98,6 +98,8 @@ namespace Weyvelength {
 			_config.max_conns_per_ip = 16;
 		if (_config.max_room_members == 0)
 			_config.max_room_members = 64;
+		if (_config.idle_timeout_ms == 0)
+			_config.idle_timeout_ms = 30000;
 
 		asio::error_code ec;
 
@@ -186,6 +188,7 @@ namespace Weyvelength {
 	asio::awaitable<void> Server::Session(std::shared_ptr<Connection> conn)
 	{
 		asio::co_spawn(conn->socket.get_executor(), WriteLoop(conn), asio::detached);
+		asio::co_spawn(conn->socket.get_executor(), IdleWatch(conn), asio::detached);
 
 		SendTo(conn->id, Proto::AssignClientId{ conn->id, conn->name });
 		SendTo(conn->id, _config.ice); // p2p infrastructure; empty fields = none
@@ -198,6 +201,7 @@ namespace Weyvelength {
 
 		conn->closing = true;
 		conn->wake.cancel();
+		conn->idle.cancel();
 
 		asio::error_code ec;
 
@@ -228,6 +232,7 @@ namespace Weyvelength {
 				co_return;   // reassembled message too large
 			body.resize(base + len);
 			co_await asio::async_read(conn->socket, asio::buffer(body.data() + base, len), use_awaitable);
+			conn->last_seen = std::chrono::steady_clock::now(); // whole frames only, so a byte trickle does not count
 
 			if (more)
 				continue;   // wait for the rest of the message
@@ -258,6 +263,24 @@ namespace Weyvelength {
 			}
 		}
 		catch (...) {
+		}
+	}
+
+	// Closes a connection that sent no complete frame for idle_timeout_ms.
+	asio::awaitable<void> Server::IdleWatch(std::shared_ptr<Connection> conn)
+	{
+		auto limit = std::chrono::milliseconds(_config.idle_timeout_ms);
+
+		while (!conn->closing) {
+			conn->idle.expires_at(conn->last_seen + limit);
+			asio::error_code ec;
+			co_await conn->idle.async_wait(asio::redirect_error(use_awaitable, ec));
+
+			if (!conn->closing && std::chrono::steady_clock::now() - conn->last_seen >= limit) {
+				spdlog::info("Client {} timed out", conn->id);
+				conn->socket.close(ec);
+				co_return;
+			}
 		}
 	}
 

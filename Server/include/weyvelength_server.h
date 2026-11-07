@@ -28,6 +28,7 @@ namespace Weyvelength {
 		uint32_t max_queued_bytes = 0; // 0 = use the default (1 MiB); a client further behind is dropped
 		uint32_t max_conns_per_ip = 0; // 0 = use the default (16)
 		uint32_t max_room_members = 0; // 0 = use the default (64)
+		uint32_t idle_timeout_ms = 0; // 0 = use the default (30000); keep it well above the client's 10 s keepalive
 		Proto::IceServers ice; // stun/turn handed to every client on connect
 	};
 
@@ -44,9 +45,11 @@ namespace Weyvelength {
 		bool closing = false;
 		std::chrono::steady_clock::time_point last_list{}; // epoch = never asked
 		std::chrono::steady_clock::time_point last_failed_join{}; // epoch = never failed
+		std::chrono::steady_clock::time_point last_seen = std::chrono::steady_clock::now(); // last complete frame
+		asio::steady_timer idle; // IdleWatch's timer; cancelled when the session ends
 
 		Connection(uint32_t id, asio::ip::tcp::socket socket)
-			: id(id), socket(std::move(socket)), wake(this->socket.get_executor()) {
+			: id(id), socket(std::move(socket)), wake(this->socket.get_executor()), idle(this->socket.get_executor()) {
 			// maybe this isnt the smartest thing to do but its ok for now
 			wake.expires_at(std::chrono::steady_clock::time_point::max());
 		}
@@ -108,6 +111,7 @@ namespace Weyvelength {
 		asio::awaitable<void> Session(std::shared_ptr<Connection> conn);
 		asio::awaitable<void> ReadLoop(std::shared_ptr<Connection> conn);
 		asio::awaitable<void> WriteLoop(std::shared_ptr<Connection> conn);
+		asio::awaitable<void> IdleWatch(std::shared_ptr<Connection> conn);
 
 		asio::io_context _context;
 		asio::ip::tcp::acceptor _acceptor{ _context };

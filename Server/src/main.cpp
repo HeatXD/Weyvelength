@@ -29,6 +29,7 @@ static void PrintUsage()
 		"  --max-queued-bytes N         default 1048576; drop a client this far behind\n"
 		"  --max-conns-per-ip N         default 16\n"
 		"  --max-room-members N         default 64\n"
+		"  --idle-timeout-ms MS         default 30000; drop a client silent this long\n"
 		"  --log-level LEVEL            default info; trace, debug, info, warn, error or off\n"
 		"  --stun-host HOST             default stun.l.google.com; empty disables it\n"
 		"  --stun-port PORT             default 19302\n"
@@ -207,6 +208,8 @@ static bool ParseArgs(int argc, char* argv[], ServerConfig& config, std::string&
 			config.max_conns_per_ip = (uint32_t)std::strtoul(next(), nullptr, 10);
 		} else if (arg == "--max-room-members") {
 			config.max_room_members = (uint32_t)std::strtoul(next(), nullptr, 10);
+		} else if (arg == "--idle-timeout-ms") {
+			config.idle_timeout_ms = (uint32_t)std::strtoul(next(), nullptr, 10);
 		} else if (arg == "--log-level") {
 			std::string name = next();
 			log_level = spdlog::level::from_str(name);
