@@ -17,6 +17,7 @@ One executable, no dependencies, no state on disk. Rooms live in memory and die 
 | `--max-queued-bytes N` | `1048576` | Unsent bytes a client may fall behind before it is dropped |
 | `--max-conns-per-ip N` | `16` | Open connections one address may hold |
 | `--max-room-members N` | `64` | Clients one room may hold |
+| `--idle-timeout-ms MS` | `30000` | How long a client may stay silent before it is dropped |
 | `--log-level LEVEL` | `info` | `trace`, `debug`, `info`, `warn`, `error` or `off` |
 | `--stun-host HOST` | `stun.l.google.com` | STUN server handed to clients; empty disables it |
 | `--stun-port PORT` | `19302` | Port for the above |
@@ -54,7 +55,7 @@ One address may hold `--max-conns-per-ip` connections at once, and further ones 
 
 A room holds at most `--max-room-members` clients. Joining a full room answers `WEYVE_ROOM_ERROR_ROOM_CLOSED`, the same as a room the host closed, and only after the password check passes.
 
-There is no idle timeout yet, so put connection level protection in front if it faces the open internet.
+A client that sends no complete message for `--idle-timeout-ms` is dropped. The client library sends a heartbeat by itself after 10 seconds without sending anything, as long as the app keeps calling `weyve_poll`, so keep the timeout well above 10 seconds. Clients built before this keepalive existed only stay connected if the app sends its own heartbeats.
 
 ## Logging
 

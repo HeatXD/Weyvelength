@@ -161,10 +161,10 @@ WEYVE_API WeyveClient* weyve_client_create(void); // never null; pair with weyve
 WEYVE_API void weyve_client_destroy(WeyveClient* client); // null is a no-op
 
 WEYVE_API bool weyve_connect(WeyveClient* client, const char* host, uint16_t port);
-WEYVE_API bool weyve_poll(WeyveClient* client); // instant, non-blocking; false once the connection is gone
+WEYVE_API bool weyve_poll(WeyveClient* client); // instant, non-blocking; false once the connection is gone. Sends a keepalive after 10 s without traffic, so keep polling to stay connected
 WEYVE_API bool weyve_next(WeyveClient* client, WeyveEvent* out); // one queued event per call; false when drained
 
-WEYVE_API bool weyve_send_heartbeat(WeyveClient* client, uint64_t timestamp); // server pongs it back
+WEYVE_API bool weyve_send_heartbeat(WeyveClient* client, uint64_t timestamp); // server pongs it back; UINT64_MAX is the library's keepalive, avoid it
 
 // --- identity ---
 
