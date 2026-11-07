@@ -25,6 +25,7 @@ static void PrintUsage()
 		"  --port PORT                  default 5555\n"
 		"  --room-code-length N         default 8\n"
 		"  --room-list-cooldown-ms MS   default 1000\n"
+		"  --join-cooldown-ms MS        default 1000; wait after a failed join\n"
 		"  --max-queued-bytes N         default 1048576; drop a client this far behind\n"
 		"  --stun-host HOST             default stun.l.google.com; empty disables it\n"
 		"  --stun-port PORT             default 19302\n"
@@ -195,6 +196,8 @@ static bool ParseArgs(int argc, char* argv[], ServerConfig& config, std::string&
 			config.room_code_length = (uint32_t)std::strtoul(next(), nullptr, 10);
 		} else if (arg == "--room-list-cooldown-ms") {
 			config.room_list_cooldown_ms = (uint32_t)std::strtoul(next(), nullptr, 10);
+		} else if (arg == "--join-cooldown-ms") {
+			config.join_cooldown_ms = (uint32_t)std::strtoul(next(), nullptr, 10);
 		} else if (arg == "--max-queued-bytes") {
 			config.max_queued_bytes = (uint32_t)std::strtoul(next(), nullptr, 10);
 		} else if (arg == "--stun-host") {

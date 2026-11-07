@@ -90,6 +90,8 @@ namespace Weyvelength {
 			_config.room_code_length = 8;
 		if (_config.room_list_cooldown_ms == 0)
 			_config.room_list_cooldown_ms = 1000;
+		if (_config.join_cooldown_ms == 0)
+			_config.join_cooldown_ms = 1000;
 		if (_config.max_queued_bytes == 0)
 			_config.max_queued_bytes = 1024 * 1024;
 
@@ -354,27 +356,31 @@ namespace Weyvelength {
 			return;
 		}
 
-		auto it = _rooms.find(msg.id);
-		if (it == _rooms.end()) {
-			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::NoSuchRoom, msg.id });
+		// every failed join starts the cooldown, so codes and passwords cannot be guessed at line rate
+		auto now = std::chrono::steady_clock::now();
+		if (now - conn->last_failed_join < std::chrono::milliseconds(_config.join_cooldown_ms)) {
+			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::RateLimited, msg.id });
 			return;
 		}
+
+		auto fail = [&](Proto::RoomErrorCode code) {
+			conn->last_failed_join = now;
+			SendTo(conn->id, Proto::RoomError{ code, msg.id });
+		};
+
+		auto it = _rooms.find(msg.id);
+		if (it == _rooms.end())
+			return fail(Proto::RoomErrorCode::NoSuchRoom);
 
 		Room& room = it->second;
-		if (std::ranges::find(room.banned_members, conn->id) != room.banned_members.end()) {
-			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::Banned, msg.id });
-			return;
-		}
+		if (std::ranges::find(room.banned_members, conn->id) != room.banned_members.end())
+			return fail(Proto::RoomErrorCode::Banned);
 
-		if (!room.open) {
-			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::RoomClosed, msg.id });
-			return;
-		}
+		if (!room.open)
+			return fail(Proto::RoomErrorCode::RoomClosed);
 
-		if (!room.password.empty() && msg.password != room.password) {
-			SendTo(conn->id, Proto::RoomError{ Proto::RoomErrorCode::BadPassword, msg.id });
-			return;
-		}
+		if (!room.password.empty() && msg.password != room.password)
+			return fail(Proto::RoomErrorCode::BadPassword);
 
 		SendToMany(room.members, Proto::PeerJoined{ conn->id, conn->name });
 
