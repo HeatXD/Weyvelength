@@ -364,3 +364,19 @@ TEST_CASE("a body claiming a huge container is rejected before allocating")
 	Proto::ServerMessage msg;
 	CHECK(!Proto::DecodeMessage(body, msg));
 }
+
+TEST_CASE("a room list stops growing once another room would not fit")
+{
+	Proto::RoomInfo full{ "ABCDEFGH", 4, true, false, {} };
+	for (uint32_t i = 0; i < Proto::max_room_listing_keys; i++)
+		full.listing[std::string(Proto::max_room_listing_key - 1, 'k') + char('a' + i)] = std::string(Proto::max_room_listing_value, 'v');
+
+	Proto::RoomList list;
+	size_t used = 0;
+	while (Proto::AppendRoom(list, used, full)) {}
+
+	REQUIRE(!list.rooms.empty());
+	CHECK(used == Proto::EncodedSize(Proto::ServerMessage{ list }));
+	CHECK(used + Proto::EncodedSize(full) > Proto::max_reassembled_size);
+	CHECK(std::get<Proto::RoomList>(RoundTrip(list)).rooms.size() == list.rooms.size());
+}
