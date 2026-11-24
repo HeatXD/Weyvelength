@@ -130,15 +130,20 @@ namespace Weyvelength {
 		return &_mesh->links.emplace(id, std::move(link)).first->second;
 	}
 
-	// Sends the local description; gathering then trickles the candidates.
+	// Sends the local description, read before gathering so it carries no
+	// candidates; gathering then trickles them. Nothing goes out unless
+	// gathering started, or the peer would answer a link that cannot come up.
 	bool Client::ShareLink(PeerLink& link, uint32_t id)
 	{
 		char sdp[JUICE_MAX_SDP_STRING_LEN];
 		if (juice_get_local_description(link.agent, sdp, sizeof(sdp)) != JUICE_ERR_SUCCESS)
 			return false;
 
+		if (juice_gather_candidates(link.agent) != JUICE_ERR_SUCCESS)
+			return false;
+
 		SendServer(Proto::P2PSignal{ id, Proto::P2PSignalKind::Description, sdp });
-		return juice_gather_candidates(link.agent) == JUICE_ERR_SUCCESS;
+		return true;
 	}
 
 	void Client::FlushLink(PeerLink& link)
@@ -211,8 +216,8 @@ namespace Weyvelength {
 			link->remote_set = true;
 		}
 
-		if (answering)
-			ShareLink(*link, sig.id); // remote set first = we take the controlled role
+		if (answering && !ShareLink(*link, sig.id)) // remote set first = we take the controlled role
+			DestroyLink(sig.id); // no answer went out; the peer's next dial starts over
 	}
 
 	void Client::PollPeers()
