@@ -206,7 +206,7 @@ namespace Weyvelength {
 		asio::error_code ec;
 
 		conn->socket.close(ec);
-		LeaveRoom(conn);
+		LeaveRoom(conn, Proto::LeaveReason::Disconnected);
 		_connections.erase(conn->id);
 		ReleaseId(conn->id);
 		if (--_per_address[conn->address] == 0)
@@ -470,8 +470,8 @@ namespace Weyvelength {
 			return;
 		}
 
-		SendTo(conn->id, Proto::PeerLeft{ conn->id }); // your own id = you left
-		LeaveRoom(conn);
+		SendTo(conn->id, Proto::PeerLeft{ conn->id, Proto::LeaveReason::Left }); // your own id = you left
+		LeaveRoom(conn, Proto::LeaveReason::Left);
 	}
 
 	void Server::HandleRoomChat(const std::shared_ptr<Connection>& conn, const Proto::RoomChat& msg)
@@ -618,7 +618,7 @@ namespace Weyvelength {
 		}
 
 		SendTo(msg.id, Proto::KickedByHost{});
-		LeaveRoom(target->second); // removal + PeerLeft broadcast, same as any other exit
+		LeaveRoom(target->second, Proto::LeaveReason::Kicked); // removal + PeerLeft broadcast, same as any other exit
 
 		spdlog::info("Client {} kicked from room {} by client {}", msg.id, room->id, conn->id);
 	}
@@ -639,7 +639,7 @@ namespace Weyvelength {
 			room->banned_members.push_back(msg.id); // barred until the room closes; join now rejects them
 
 		SendTo(msg.id, Proto::BannedByHost{});
-		LeaveRoom(target->second); // removal + PeerLeft broadcast, same as a kick
+		LeaveRoom(target->second, Proto::LeaveReason::Banned); // removal + PeerLeft broadcast, same as a kick
 
 		spdlog::info("Client {} banned from room {} by client {}", msg.id, room->id, conn->id);
 	}
@@ -839,7 +839,7 @@ namespace Weyvelength {
 		_free_ids.push_back(id + id_generation_step);
 	}
 
-	void Server::LeaveRoom(const std::shared_ptr<Connection>& conn)
+	void Server::LeaveRoom(const std::shared_ptr<Connection>& conn, Proto::LeaveReason reason)
 	{
 		if (conn->room.empty())
 			return;
@@ -854,7 +854,7 @@ namespace Weyvelength {
 				spdlog::info("Room {} closed", conn->room);
 			}
 			else {
-				SendToMany(room.members, Proto::PeerLeft{ conn->id });
+				SendToMany(room.members, Proto::PeerLeft{ conn->id, reason });
 				if (room.host == conn->id) {
 					room.host = room.members.front(); // oldest remaining member
 					SendToMany(room.members, Proto::HostChanged{ room.host });

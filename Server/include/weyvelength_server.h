@@ -100,7 +100,7 @@ namespace Weyvelength {
 		void HandleSetRoomListing(const std::shared_ptr<Connection>& conn, const Proto::SetRoomListing& msg);
 		void HandleListRooms(const std::shared_ptr<Connection>& conn, const Proto::ListRooms& msg);
 
-		void LeaveRoom(const std::shared_ptr<Connection>& conn);
+		void LeaveRoom(const std::shared_ptr<Connection>& conn, Proto::LeaveReason reason);
 		const std::string& MemberName(uint32_t id) const; // the default if the connection is gone
 		Room* HostRoom(const std::shared_ptr<Connection>& conn); // the sender's room if they host it, else null after sending the error
 
