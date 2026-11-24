@@ -6,6 +6,7 @@
 #include <variant>
 #include <vector>
 
+#include "client.h"
 #include "marshal.h"
 
 using namespace Weyvelength;
@@ -24,6 +25,12 @@ static_assert((int)WEYVE_ROOM_ERROR_RATE_LIMITED == (int)Proto::RoomErrorCode::R
 // Filter ops cross the ABI as a plain cast too, so they map value for value.
 static_assert((int)WEYVE_FILTER_EXISTS == (int)Proto::RoomFilterOp::Exists);
 static_assert((int)WEYVE_FILTER_EQUALS == (int)Proto::RoomFilterOp::Equals);
+
+// Link paths too.
+static_assert((int)WEYVE_LINK_NONE == (int)LinkPath::None);
+static_assert((int)WEYVE_LINK_UNKNOWN == (int)LinkPath::Unknown);
+static_assert((int)WEYVE_LINK_DIRECT == (int)LinkPath::Direct);
+static_assert((int)WEYVE_LINK_RELAYED == (int)LinkPath::Relayed);
 
 namespace {
 	bool Surfaced(const Proto::ServerMessage& msg)

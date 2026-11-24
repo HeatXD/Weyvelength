@@ -22,6 +22,13 @@ namespace Weyvelength {
 		uint16_t port = 0;
 	};
 
+	enum class LinkPath : uint8_t { // how a link's datagrams travel, from its selected candidate pair
+		None, // no link up
+		Unknown, // up, but ICE cannot say how
+		Direct, // host or server-reflexive candidates on both ends
+		Relayed, // through a TURN relay on either end
+	};
+
 	struct Client {
 		Client();
 		~Client();
@@ -61,6 +68,7 @@ namespace Weyvelength {
 		bool SendP2P(uint32_t id, const Proto::P2PMessage& msg); // direct to a room member; the first send builds the link, queued until it connects
 		bool NextP2P(uint32_t& from, Proto::P2PMessage& out); // one received datagram per call
 		bool PeerConnectedP2P(uint32_t id) const; // is a direct link to this member up right now?
+		LinkPath PeerLinkPath(uint32_t id) const; // direct or through a relay; None while the link is down
 		void SetPortRange(uint16_t begin, uint16_t end); // links built from now on bind a local udp port in [begin, end]; 0 0 = any
 
 		uint32_t Id() const;  // 0 until the server has assigned one

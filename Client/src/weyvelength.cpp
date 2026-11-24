@@ -174,6 +174,11 @@ bool weyve_peer_connected(WeyveClient* client, uint32_t id)
 	return client->client.PeerConnectedP2P(id);
 }
 
+WeyveLinkPath weyve_peer_link_path(const WeyveClient* client, uint32_t id)
+{
+	return (WeyveLinkPath)client->client.PeerLinkPath(id);
+}
+
 void weyve_set_port_range(WeyveClient* client, uint16_t begin, uint16_t end)
 {
 	client->client.SetPortRange(begin, end);

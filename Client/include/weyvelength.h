@@ -210,6 +210,16 @@ WEYVE_API bool weyve_send_p2p(WeyveClient* client, uint32_t id, const void* data
 // buffer borrows client-owned storage, valid until the next weyve_next_p2p call.
 WEYVE_API const uint8_t* weyve_next_p2p(WeyveClient* client, uint32_t* from, uint32_t* len);
 WEYVE_API bool weyve_peer_connected(WeyveClient* client, uint32_t id); // is a direct link up right now?
+
+// Mirrors Weyvelength::LinkPath: how a link's datagrams travel.
+typedef enum WeyveLinkPath {
+	WEYVE_LINK_NONE, // no link up
+	WEYVE_LINK_UNKNOWN, // up, but ICE cannot say how
+	WEYVE_LINK_DIRECT, // peer to peer
+	WEYVE_LINK_RELAYED, // through a TURN relay
+} WeyveLinkPath;
+WEYVE_API WeyveLinkPath weyve_peer_link_path(const WeyveClient* client, uint32_t id);
+
 // Links built from now on bind their local UDP port in [begin, end], for a
 // firewall that opens only that range; 0 and 0 means any port.
 WEYVE_API void weyve_set_port_range(WeyveClient* client, uint16_t begin, uint16_t end);

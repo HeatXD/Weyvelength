@@ -87,6 +87,27 @@ namespace Weyvelength {
 		return it != _mesh->links.end() && it->second.connected;
 	}
 
+	// One candidate as sdp, an "a=candidate:" line or a bare trickled one.
+	static bool IsRelayCandidate(const char* sdp)
+	{
+		return std::strstr(sdp, " typ relay") != nullptr;
+	}
+
+	LinkPath Client::PeerLinkPath(uint32_t id) const
+	{
+		auto it = _mesh->links.find(id);
+		if (it == _mesh->links.end() || !it->second.connected)
+			return LinkPath::None;
+
+		char local[JUICE_MAX_CANDIDATE_SDP_STRING_LEN] = {};
+		char remote[JUICE_MAX_CANDIDATE_SDP_STRING_LEN] = {};
+		if (juice_get_selected_candidates(it->second.agent, local, sizeof(local), remote, sizeof(remote)) != JUICE_ERR_SUCCESS)
+			return LinkPath::Unknown;
+
+		// a relay on either end carries every datagram
+		return IsRelayCandidate(local) || IsRelayCandidate(remote) ? LinkPath::Relayed : LinkPath::Direct;
+	}
+
 	void Client::SetPortRange(uint16_t begin, uint16_t end)
 	{
 		_port_begin = begin;
