@@ -71,6 +71,8 @@ weyve_client_destroy(client);
 
 `weyve_poll` is instant and never blocks, so it drops straight into a frame loop. Event payload pointers stay valid until the next `weyve_poll` or `weyve_next`, so read them before polling again. All calls for a client must happen on the thread that drives `weyve_poll`.
 
+A connection that goes silent for 30 seconds counts as lost, and `weyve_poll` returns false. Losing the server clears the room but keeps every p2p link that is up, so a match can go on: keep calling `weyve_poll` and the link calls until `weyve_peer_connected` says the link is gone. The other members see `WEYVE_EVENT_PEER_LEFT` with `WEYVE_LEAVE_DISCONNECTED` and keep their link to you the same way. Kicks, bans and leaving the room still cut links.
+
 ## Building Weyvelength
 ### Prerequisites
 To build Weyvelength, make sure you have the following installed:

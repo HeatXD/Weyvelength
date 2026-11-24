@@ -102,6 +102,7 @@ namespace Weyvelength::Marshal {
 		else if (auto* left = std::get_if<Proto::PeerLeft>(&msg)) {
 			out->type = WEYVE_EVENT_PEER_LEFT;
 			out->data.peer_left.id = left->id;
+			out->data.peer_left.reason = (WeyveLeaveReason)left->reason;
 		}
 		else if (auto* host = std::get_if<Proto::HostChanged>(&msg)) {
 			out->type = WEYVE_EVENT_HOST_CHANGED;

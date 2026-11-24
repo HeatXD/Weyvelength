@@ -44,6 +44,14 @@ typedef enum WeyveRoomError {
 	WEYVE_ROOM_ERROR_RATE_LIMITED, // asked again too soon; retry later
 } WeyveRoomError;
 
+// Mirrors Proto::LeaveReason; carried by WEYVE_EVENT_PEER_LEFT.
+typedef enum WeyveLeaveReason {
+	WEYVE_LEAVE_LEFT, // asked to leave
+	WEYVE_LEAVE_KICKED,
+	WEYVE_LEAVE_BANNED,
+	WEYVE_LEAVE_DISCONNECTED, // lost the server; a p2p link to them that was up stays up
+} WeyveLeaveReason;
+
 // Mirrors Proto::RoomFilterOp.
 typedef enum WeyveRoomFilterOp {
 	WEYVE_FILTER_EXISTS, // the key is published at all; value ignored
@@ -112,6 +120,7 @@ typedef struct WeyveEvent {
 
 		struct { // WEYVE_EVENT_PEER_LEFT
 			uint32_t id;
+			WeyveLeaveReason reason;
 		} peer_left;
 
 		struct { // WEYVE_EVENT_HOST_CHANGED
@@ -161,7 +170,11 @@ WEYVE_API WeyveClient* weyve_client_create(void); // never null; pair with weyve
 WEYVE_API void weyve_client_destroy(WeyveClient* client); // null is a no-op
 
 WEYVE_API bool weyve_connect(WeyveClient* client, const char* host, uint16_t port);
-WEYVE_API bool weyve_poll(WeyveClient* client); // instant, non-blocking; false once the connection is gone, including a server silent for 30 s. Sends a keepalive after 10 s quiet either way, so keep polling to stay connected
+// Instant, non-blocking; false once the connection is gone, including a server
+// silent for 30 s. Sends a keepalive after 10 s quiet either way, so keep
+// polling to stay connected. Losing the server clears the room but keeps every
+// p2p link that is up: keep polling after false and a match can go on over them.
+WEYVE_API bool weyve_poll(WeyveClient* client);
 WEYVE_API bool weyve_next(WeyveClient* client, WeyveEvent* out); // one queued event per call; false when drained
 
 WEYVE_API bool weyve_send_heartbeat(WeyveClient* client, uint64_t timestamp); // server pongs it back; UINT64_MAX is the library's keepalive, avoid it
@@ -205,7 +218,9 @@ WEYVE_API bool weyve_delete_member_data(WeyveClient* client, const char* key);
 
 // --- peer to peer ---
 
-WEYVE_API bool weyve_send_p2p(WeyveClient* client, uint32_t id, const void* data, uint32_t len); // first send builds the link
+// To a room member, or to a peer whose link stayed up after either side lost
+// the server. The first send to a member builds the link.
+WEYVE_API bool weyve_send_p2p(WeyveClient* client, uint32_t id, const void* data, uint32_t len);
 // One received datagram; returns its bytes or null when none are queued. The
 // buffer borrows client-owned storage, valid until the next weyve_next_p2p call.
 WEYVE_API const uint8_t* weyve_next_p2p(WeyveClient* client, uint32_t* from, uint32_t* len);

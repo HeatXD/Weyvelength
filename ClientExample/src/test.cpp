@@ -53,6 +53,16 @@ static void PrintRoomError(const WeyveEvent& event)
 	std::cout << "\n";
 }
 
+static const char* LeaveReasonText(WeyveLeaveReason reason)
+{
+	switch (reason) {
+	case WEYVE_LEAVE_KICKED: return " (kicked)";
+	case WEYVE_LEAVE_BANNED: return " (banned)";
+	case WEYVE_LEAVE_DISCONNECTED: return " (lost the server)";
+	default: return "";
+	}
+}
+
 // "/kick 3" style numeric argument; 0 (never a valid id) on garbage.
 static uint32_t ParseId(const std::string& arg)
 {
@@ -272,7 +282,7 @@ static int RunChat(WeyveClient* client, const std::string& code, const std::stri
 					std::cout << "Left the room\n";
 					return 0;
 				}
-				std::cout << "* client " << event.data.peer_left.id << " left\n";
+				std::cout << "* client " << event.data.peer_left.id << " left" << LeaveReasonText(event.data.peer_left.reason) << "\n";
 				break;
 			case WEYVE_EVENT_HOST_CHANGED:
 				std::cout << "* client " << event.data.host_changed.id << " is the host" << (event.data.host_changed.id == weyve_id(client) ? " (you)" : "") << "\n";

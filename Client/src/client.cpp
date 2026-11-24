@@ -59,16 +59,14 @@ namespace Weyvelength {
 
 	bool Client::Poll()
 	{
-		if (!_asio->socket.is_open())
+		bool connected = _asio->socket.is_open() && DrainServer() && CarveServer();
+		if (connected && !ServerAlive())
+			connected = DisconnectServer(); // half-open, e.g. a nat dropped the mapping
+
+		PollPeers(); // links outlive the server; connected, this may queue signal frames for the flush below
+		if (!connected)
 			return false;
 
-		if (!DrainServer() || !CarveServer())
-			return false;
-
-		if (!ServerAlive())
-			return DisconnectServer(); // half-open, e.g. a nat dropped the mapping
-
-		PollPeers(); // may queue signal frames; the flush below sends them
 		KeepAlive();
 		return FlushServer();
 	}
@@ -85,6 +83,9 @@ namespace Weyvelength {
 
 	bool Client::SendServer(const Proto::ServerMessage& msg)
 	{
+		if (!_asio->socket.is_open())
+			return false; // nothing may queue up for a later connection
+
 		auto frame = Proto::FrameMessage(msg);
 		_asio->tx.insert(_asio->tx.end(), frame.begin(), frame.end());
 		_last_sent = std::chrono::steady_clock::now();
@@ -405,16 +406,7 @@ namespace Weyvelength {
 			_names[joined->id] = joined->name;
 		}
 		else if (auto* left = std::get_if<Proto::PeerLeft>(&msg)) {
-			if (left->id == _id) {
-				ClearRoomState(); // our own id = our LeaveRoom went through
-			}
-			else {
-				std::erase(_members, left->id);
-				_names.erase(left->id);
-				_member_data.erase(left->id);
-				DestroyLink(left->id); // no member, no mesh link
-				_mesh->attempts.erase(left->id); // and no grudge if they rejoin
-			}
+			HandlePeerLeft(*left);
 		}
 		else if (auto* host = std::get_if<Proto::HostChanged>(&msg)) {
 			_host = host->id;
@@ -462,9 +454,32 @@ namespace Weyvelength {
 		}
 	}
 
+	void Client::HandlePeerLeft(const Proto::PeerLeft& left)
+	{
+		if (left.id == _id) {
+			ClearRoomState(); // our own id = our LeaveRoom went through
+			return;
+		}
+
+		std::erase(_members, left.id);
+		_names.erase(left.id);
+		_member_data.erase(left.id);
+		_mesh->attempts.erase(left.id); // no grudge if they rejoin
+
+		// someone who only lost the server keeps a link that is up, until it
+		// fails or we leave; everyone else takes their link with them
+		if (left.reason != Proto::LeaveReason::Disconnected || !PeerConnectedP2P(left.id))
+			DestroyLink(left.id);
+	}
+
 	void Client::ClearRoomState()
 	{
 		DestroyAllLinks(); // the mesh only spans the current room
+		ClearRoomCache();
+	}
+
+	void Client::ClearRoomCache()
+	{
 		_room.clear();
 		_host = 0;
 		_room_open = true;
@@ -477,10 +492,19 @@ namespace Weyvelength {
 		_member_data.clear();
 	}
 
+	// The room is gone with the server, but a link that is up stays: whatever
+	// runs over it goes on until it fails or the client is destroyed.
 	bool Client::DisconnectServer()
 	{
-		_asio->socket.close();
-		ClearRoomState();
+		auto& impl = *_asio;
+		asio::error_code ec;
+		impl.socket.close(ec);
+		impl.rx.clear(); // a later Connect starts from a clean stream
+		impl.rx_msg.clear();
+		impl.tx.clear();
+
+		ClearRoomCache();
+		DestroyDownLinks();
 		return false;
 	}
 }

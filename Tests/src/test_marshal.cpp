@@ -26,7 +26,11 @@ static_assert((int)WEYVE_ROOM_ERROR_RATE_LIMITED == (int)Proto::RoomErrorCode::R
 static_assert((int)WEYVE_FILTER_EXISTS == (int)Proto::RoomFilterOp::Exists);
 static_assert((int)WEYVE_FILTER_EQUALS == (int)Proto::RoomFilterOp::Equals);
 
-// Link paths too.
+// Leave reasons and link paths too.
+static_assert((int)WEYVE_LEAVE_LEFT == (int)Proto::LeaveReason::Left);
+static_assert((int)WEYVE_LEAVE_KICKED == (int)Proto::LeaveReason::Kicked);
+static_assert((int)WEYVE_LEAVE_BANNED == (int)Proto::LeaveReason::Banned);
+static_assert((int)WEYVE_LEAVE_DISCONNECTED == (int)Proto::LeaveReason::Disconnected);
 static_assert((int)WEYVE_LINK_NONE == (int)LinkPath::None);
 static_assert((int)WEYVE_LINK_UNKNOWN == (int)LinkPath::Unknown);
 static_assert((int)WEYVE_LINK_DIRECT == (int)LinkPath::Direct);
@@ -82,7 +86,7 @@ TEST_CASE("chat carries the sender and text, spaces included")
 TEST_CASE("peer membership events carry the client id")
 {
 	Proto::ServerMessage joined = Proto::PeerJoined{ 3, "Ada" };
-	Proto::ServerMessage left = Proto::PeerLeft{ 3 };
+	Proto::ServerMessage left = Proto::PeerLeft{ 3, Proto::LeaveReason::Kicked };
 	Proto::ServerMessage host = Proto::HostChanged{ 3 };
 	WeyveEvent e{};
 
@@ -95,6 +99,7 @@ TEST_CASE("peer membership events carry the client id")
 	REQUIRE(Marshal::FillEvent(left, &e));
 	CHECK(e.type == WEYVE_EVENT_PEER_LEFT);
 	CHECK(e.data.peer_left.id == 3);
+	CHECK(e.data.peer_left.reason == WEYVE_LEAVE_KICKED);
 
 	REQUIRE(Marshal::FillEvent(host, &e));
 	CHECK(e.type == WEYVE_EVENT_HOST_CHANGED);

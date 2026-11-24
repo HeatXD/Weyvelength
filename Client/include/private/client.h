@@ -35,7 +35,7 @@ namespace Weyvelength {
 
 		bool Connect(ClientConfig& config);
 
-		bool Poll();
+		bool Poll(); // false once the server is gone; keep calling it, live p2p links still run through it
 
 		bool Next(Proto::ServerMessage& out);
 
@@ -65,9 +65,9 @@ namespace Weyvelength {
 		bool SetMemberData(const std::string& key, const std::string& value); // our own slots; server replies MemberDataChanged or RoomError
 		bool DeleteMemberData(const std::string& key); // sugar for an empty-value SetMemberData
 
-		bool SendP2P(uint32_t id, const Proto::P2PMessage& msg); // direct to a room member; the first send builds the link, queued until it connects
+		bool SendP2P(uint32_t id, const Proto::P2PMessage& msg); // direct to a room member, or over a link kept up after its peer lost the server; the first send builds the link, queued until it connects
 		bool NextP2P(uint32_t& from, Proto::P2PMessage& out); // one received datagram per call
-		bool PeerConnectedP2P(uint32_t id) const; // is a direct link to this member up right now?
+		bool PeerConnectedP2P(uint32_t id) const; // is a direct link to this peer up right now?
 		LinkPath PeerLinkPath(uint32_t id) const; // direct or through a relay; None while the link is down
 		void SetPortRange(uint16_t begin, uint16_t end); // links built from now on bind a local udp port in [begin, end]; 0 0 = any
 		void SetRelayOnly(bool on); // testing: links signal and accept only relay candidates, so they come up through TURN or not at all
@@ -104,7 +104,9 @@ namespace Weyvelength {
 		bool ServerAlive() const; // false once the server has been silent past dead_after despite our keepalives
 
 		void CacheRoomState(const Proto::ServerMessage& msg);
-		void ClearRoomState();
+		void HandlePeerLeft(const Proto::PeerLeft& left);
+		void ClearRoomState(); // the cache and every link: we are out of the room
+		void ClearRoomCache(); // the cache alone
 
 		void PollPeers();
 
@@ -116,6 +118,7 @@ namespace Weyvelength {
 
 		void DestroyLink(uint32_t id);
 		void DestroyAllLinks();
+		void DestroyDownLinks(); // every link that is not up right now
 
 		void HandleP2PSignal(const Proto::P2PSignal& sig);
 		void HandleP2PDescription(PeerLink* link, const Proto::P2PSignal& sig);

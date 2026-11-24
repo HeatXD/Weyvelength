@@ -49,10 +49,11 @@ namespace Weyvelength {
 		if (msg.empty() || msg.size() > Proto::max_p2p_message_size)
 			return false;
 
-		if (id == _id || std::ranges::find(_members, id) == _members.end())
-			return false;
-
 		PeerLink* link = FindLink(id);
+		bool member = std::ranges::find(_members, id) != _members.end();
+		if (id == _id || (!member && !(link && link->connected)))
+			return false; // a member, or a link kept up after its peer lost the server
+
 		if (!link) {
 			link = CreateLink(id); // lazy: the first message to a peer starts ICE
 			if (!link)
@@ -223,6 +224,19 @@ namespace Weyvelength {
 			juice_destroy(link.agent);
 		}
 		_mesh->links.clear();
+		_mesh->attempts.clear();
+	}
+
+	void Client::DestroyDownLinks()
+	{
+		for (auto it = _mesh->links.begin(); it != _mesh->links.end();) {
+			if (it->second.connected) {
+				++it;
+				continue;
+			}
+			juice_destroy(it->second.agent);
+			it = _mesh->links.erase(it);
+		}
 		_mesh->attempts.clear();
 	}
 
