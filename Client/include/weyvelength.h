@@ -223,6 +223,10 @@ WEYVE_API WeyveLinkPath weyve_peer_link_path(const WeyveClient* client, uint32_t
 // Links built from now on bind their local UDP port in [begin, end], for a
 // firewall that opens only that range; 0 and 0 means any port.
 WEYVE_API void weyve_set_port_range(WeyveClient* client, uint16_t begin, uint16_t end);
+// Testing: from now on, links signal and accept only relay candidates, so
+// they come up through TURN or not at all, even with a peer that is not
+// testing. Leave it off in a release build.
+WEYVE_API void weyve_set_relay_only(WeyveClient* client, bool on);
 
 // --- cached room state ---
 // Getters below read the client's cache; nothing blocks or hits the network.

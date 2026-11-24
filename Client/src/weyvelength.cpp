@@ -184,6 +184,11 @@ void weyve_set_port_range(WeyveClient* client, uint16_t begin, uint16_t end)
 	client->client.SetPortRange(begin, end);
 }
 
+void weyve_set_relay_only(WeyveClient* client, bool on)
+{
+	client->client.SetRelayOnly(on);
+}
+
 // --- cached room state ---
 
 uint32_t weyve_id(const WeyveClient* client)

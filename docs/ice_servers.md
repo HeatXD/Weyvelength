@@ -172,6 +172,10 @@ It is metered on relayed traffic, against the fixed cost of a box you already ru
 | Violet | no | yes | Small and dependency free, static credentials |
 | Cloudflare | yes | no | UDP endpoints only, metered on relayed traffic |
 
+## Checking TURN
+
+Most links come up direct, so a broken relay can go unnoticed until a player behind a strict NAT cannot connect. `weyve_set_relay_only(client, true)` makes the links that client builds signal and accept only relay candidates, so they connect through TURN or not at all, whatever the other peer does. Turn it on in one test client, join a room and send to a peer: once the link is up, `weyve_peer_link_path` reports `WEYVE_LINK_RELAYED`. In normal play the same call tells you whether a laggy player is going through a relay.
+
 ## Turning it off
 
 An empty `--stun-host` disables STUN, and no `--turn` means no TURN. Peers then connect only when already directly reachable, which is occasionally what a LAN build wants.

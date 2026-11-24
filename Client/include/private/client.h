@@ -70,6 +70,7 @@ namespace Weyvelength {
 		bool PeerConnectedP2P(uint32_t id) const; // is a direct link to this member up right now?
 		LinkPath PeerLinkPath(uint32_t id) const; // direct or through a relay; None while the link is down
 		void SetPortRange(uint16_t begin, uint16_t end); // links built from now on bind a local udp port in [begin, end]; 0 0 = any
+		void SetRelayOnly(bool on); // testing: links signal and accept only relay candidates, so they come up through TURN or not at all
 
 		uint32_t Id() const;  // 0 until the server has assigned one
 		const std::string& Name() const; // our own name, as the server accepted it
@@ -119,6 +120,7 @@ namespace Weyvelength {
 		void HandleP2PSignal(const Proto::P2PSignal& sig);
 		void HandleP2PDescription(PeerLink* link, const Proto::P2PSignal& sig);
 		void HandleJuiceEvent(JuiceEvent& ev);
+		void HandleLocalCandidate(const JuiceEvent& ev);
 		void HandleLinkState(PeerLink& link, const JuiceEvent& ev);
 
 		std::unique_ptr<ClientAsioImpl> _asio;
@@ -127,6 +129,7 @@ namespace Weyvelength {
 		Proto::IceServers _ice; // handed to us by the server; feeds every new link
 		uint16_t _port_begin = 0; // local udp range for new links; 0 0 = any
 		uint16_t _port_end = 0;
+		bool _relay_only = false; // testing switch; see SetRelayOnly
 
 		std::chrono::steady_clock::time_point _last_sent{};
 		std::chrono::steady_clock::time_point _last_received{}; // any whole message from the server

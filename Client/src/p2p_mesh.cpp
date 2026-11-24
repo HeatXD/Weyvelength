@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <string_view>
 
 // The p2p half of the client: a lazily built mesh of libjuice links,
 // signaled through the server as P2PSignal frames.
@@ -108,10 +109,33 @@ namespace Weyvelength {
 		return IsRelayCandidate(local) || IsRelayCandidate(remote) ? LinkPath::Relayed : LinkPath::Direct;
 	}
 
+	// A description with every non-relay "a=candidate:" line dropped.
+	static std::string RelayCandidatesOnly(const std::string& sdp)
+	{
+		std::string out;
+		size_t start = 0;
+		while (start < sdp.size()) {
+			size_t end = sdp.find('\n', start);
+			end = end == std::string::npos ? sdp.size() : end + 1; // the line keeps its own ending
+			std::string_view line{ sdp.data() + start, end - start };
+			if (!line.starts_with("a=candidate:") || line.find(" typ relay") != std::string_view::npos)
+				out += line;
+			start = end;
+		}
+		return out;
+	}
+
 	void Client::SetPortRange(uint16_t begin, uint16_t end)
 	{
 		_port_begin = begin;
 		_port_end = end;
+	}
+
+	// Filters what we signal as well as what we accept: a peer without the
+	// switch would otherwise reach our own addresses and come up direct.
+	void Client::SetRelayOnly(bool on)
+	{
+		_relay_only = on;
 	}
 
 	PeerLink* Client::FindLink(uint32_t id)
@@ -211,7 +235,7 @@ namespace Weyvelength {
 			HandleP2PDescription(link, sig);
 			break;
 		case Proto::P2PSignalKind::Candidate:
-			if (link)
+			if (link && (!_relay_only || IsRelayCandidate(sig.payload.c_str())))
 				juice_add_remote_candidate(link->agent, sig.payload.c_str());
 			break;
 		case Proto::P2PSignalKind::GatheringDone:
@@ -241,7 +265,8 @@ namespace Weyvelength {
 		}
 
 		if (!link->remote_set) { // glare aside, apply the remote description once
-			juice_set_remote_description(link->agent, sig.payload.c_str());
+			std::string sdp = _relay_only ? RelayCandidatesOnly(sig.payload) : sig.payload;
+			juice_set_remote_description(link->agent, sdp.c_str());
 			link->remote_set = true;
 		}
 
@@ -274,7 +299,7 @@ namespace Weyvelength {
 			HandleLinkState(*link, ev);
 			break;
 		case JuiceEvent::Kind::Candidate:
-			SendServer(Proto::P2PSignal{ ev.peer, Proto::P2PSignalKind::Candidate, std::string{ (const char*)ev.payload.data(), ev.payload.size() } });
+			HandleLocalCandidate(ev);
 			break;
 		case JuiceEvent::Kind::GatheringDone:
 			SendServer(Proto::P2PSignal{ ev.peer, Proto::P2PSignalKind::GatheringDone, {} });
@@ -283,6 +308,15 @@ namespace Weyvelength {
 			_p2p_inbox.emplace(ev.peer, std::move(ev.payload));
 			break;
 		}
+	}
+
+	void Client::HandleLocalCandidate(const JuiceEvent& ev)
+	{
+		std::string candidate{ (const char*)ev.payload.data(), ev.payload.size() };
+		if (_relay_only && !IsRelayCandidate(candidate.c_str()))
+			return; // relay only: our own addresses stay unsignaled
+
+		SendServer(Proto::P2PSignal{ ev.peer, Proto::P2PSignalKind::Candidate, std::move(candidate) });
 	}
 
 	void Client::HandleLinkState(PeerLink& link, const JuiceEvent& ev)
