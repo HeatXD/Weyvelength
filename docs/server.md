@@ -55,7 +55,7 @@ One address may hold `--max-conns-per-ip` connections at once, and further ones 
 
 A room holds at most `--max-room-members` clients. Joining a full room answers `WEYVE_ROOM_ERROR_ROOM_CLOSED`, the same as a room the host closed, and only after the password check passes.
 
-A client that sends no complete message for `--idle-timeout-ms` is dropped. The client library sends a heartbeat by itself after 10 seconds without sending anything, as long as the app keeps calling `weyve_poll`, so keep the timeout well above 10 seconds. Clients built before this keepalive existed only stay connected if the app sends its own heartbeats.
+A client that sends no complete message for `--idle-timeout-ms` is dropped. The client library sends a heartbeat by itself after 10 seconds without sending or receiving anything, as long as the app keeps calling `weyve_poll`, so keep the timeout well above 10 seconds. The pong to that heartbeat is also how the client checks the server is still there: after 30 seconds with nothing from the server, `weyve_poll` returns false, so a connection a router dropped silently surfaces instead of leaving the app in a room that stopped updating. Clients built before this keepalive existed only stay connected if the app sends its own heartbeats.
 
 ## Logging
 

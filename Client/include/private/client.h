@@ -90,7 +90,8 @@ namespace Weyvelength {
 		bool CarveServer();
 		bool FlushServer();
 		bool DisconnectServer();
-		void KeepAlive(); // a heartbeat after a quiet spell, so the server's idle timeout never fires
+		void KeepAlive(); // a heartbeat after a quiet spell either way, so neither side's idle check fires
+		bool ServerAlive() const; // false once the server has been silent past dead_after despite our keepalives
 
 		void CacheRoomState(const Proto::ServerMessage& msg);
 		void ClearRoomState();
@@ -117,6 +118,7 @@ namespace Weyvelength {
 		Proto::IceServers _ice; // handed to us by the server; feeds every new link
 
 		std::chrono::steady_clock::time_point _last_sent{};
+		std::chrono::steady_clock::time_point _last_received{}; // any whole message from the server
 		uint32_t _keepalives = 0; // our own heartbeats still awaiting their pong, which Next() never shows
 
 		std::queue<Proto::ServerMessage> _inbox;

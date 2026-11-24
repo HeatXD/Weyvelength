@@ -16,6 +16,8 @@
 
 namespace Weyvelength {
 	constexpr auto keepalive_interval = std::chrono::seconds(10); // well inside the server's default 30 s idle timeout
+	constexpr auto dead_after = std::chrono::seconds(30); // silence this long, with keepalives unanswered: the link is gone
+	constexpr uint32_t dead_keepalives = 2; // unanswered keepalives before silence counts; a poll hitch alone sends none
 	constexpr uint64_t keepalive_stamp = UINT64_MAX; // marks our own heartbeats; their pongs stay internal
 
 	struct ClientAsioImpl {
@@ -50,6 +52,7 @@ namespace Weyvelength {
 
 		impl.socket.non_blocking(true, ec);
 		_last_sent = std::chrono::steady_clock::now();
+		_last_received = _last_sent;
 		_keepalives = 0;
 		return !ec;
 	}
@@ -61,6 +64,9 @@ namespace Weyvelength {
 
 		if (!DrainServer() || !CarveServer())
 			return false;
+
+		if (!ServerAlive())
+			return DisconnectServer(); // half-open, e.g. a nat dropped the mapping
 
 		PollPeers(); // may queue signal frames; the flush below sends them
 		KeepAlive();
@@ -85,13 +91,21 @@ namespace Weyvelength {
 		return true;
 	}
 
+	// Quiet either way gets a heartbeat: our side for the server's idle timeout,
+	// theirs because the pong is what proves the link to ServerAlive.
 	void Client::KeepAlive()
 	{
-		if (std::chrono::steady_clock::now() - _last_sent < keepalive_interval)
+		auto now = std::chrono::steady_clock::now();
+		if (now - _last_sent < keepalive_interval && now - _last_received < keepalive_interval)
 			return;
 
 		SendServer(Proto::Heartbeat{ keepalive_stamp });
 		_keepalives++;
+	}
+
+	bool Client::ServerAlive() const
+	{
+		return _keepalives < dead_keepalives || std::chrono::steady_clock::now() - _last_received < dead_after;
 	}
 
 	bool Client::SetName(const std::string& name)
@@ -324,6 +338,8 @@ namespace Weyvelength {
 			impl.rx_msg.clear();
 			if (bad)
 				return DisconnectServer();
+
+			_last_received = std::chrono::steady_clock::now();
 
 			if (auto* assign = std::get_if<Proto::AssignClientId>(&msg)) {
 				_id = assign->id;   // transport metadata; not surfaced via Next()
