@@ -87,6 +87,12 @@ namespace Weyvelength {
 		return it != _mesh->links.end() && it->second.connected;
 	}
 
+	void Client::SetPortRange(uint16_t begin, uint16_t end)
+	{
+		_port_begin = begin;
+		_port_end = end;
+	}
+
 	PeerLink* Client::FindLink(uint32_t id)
 	{
 		auto it = _mesh->links.find(id);
@@ -116,6 +122,8 @@ namespace Weyvelength {
 		}
 		config.turn_servers = turn.empty() ? nullptr : turn.data();
 		config.turn_servers_count = (int)turn.size();
+		config.local_port_range_begin = _port_begin;
+		config.local_port_range_end = _port_end;
 		config.cb_state_changed = OnJuiceState;
 		config.cb_candidate = OnJuiceCandidate;
 		config.cb_gathering_done = OnJuiceGatheringDone;

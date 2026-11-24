@@ -61,6 +61,7 @@ namespace Weyvelength {
 		bool SendP2P(uint32_t id, const Proto::P2PMessage& msg); // direct to a room member; the first send builds the link, queued until it connects
 		bool NextP2P(uint32_t& from, Proto::P2PMessage& out); // one received datagram per call
 		bool PeerConnectedP2P(uint32_t id) const; // is a direct link to this member up right now?
+		void SetPortRange(uint16_t begin, uint16_t end); // links built from now on bind a local udp port in [begin, end]; 0 0 = any
 
 		uint32_t Id() const;  // 0 until the server has assigned one
 		const std::string& Name() const; // our own name, as the server accepted it
@@ -116,6 +117,8 @@ namespace Weyvelength {
 		std::unique_ptr<P2PMesh> _mesh;
 
 		Proto::IceServers _ice; // handed to us by the server; feeds every new link
+		uint16_t _port_begin = 0; // local udp range for new links; 0 0 = any
+		uint16_t _port_end = 0;
 
 		std::chrono::steady_clock::time_point _last_sent{};
 		std::chrono::steady_clock::time_point _last_received{}; // any whole message from the server
