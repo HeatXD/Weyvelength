@@ -54,7 +54,17 @@ namespace Weyvelength::Proto {
 		uint32_t id = 0;
 		std::string name;
 	};
-	struct PeerLeft { uint32_t id = 0; }; // server -> client: a client left the room; your own id confirms your LeaveRoom
+	enum class LeaveReason : uint8_t {
+		Left, // sent LeaveRoom
+		Kicked,
+		Banned,
+		Disconnected, // lost the server; a p2p link to them may still be up
+	};
+
+	struct PeerLeft { // server -> client: a client left the room; your own id confirms your LeaveRoom
+		uint32_t id = 0;
+		LeaveReason reason{};
+	};
 	struct HostChanged { uint32_t id = 0; }; // server -> client: the room's current host
 
 	// client -> server: set our display name; empty resets it to the default.

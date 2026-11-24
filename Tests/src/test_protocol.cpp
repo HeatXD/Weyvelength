@@ -75,6 +75,12 @@ static_assert((uint8_t)Proto::P2PSignalKind::GatheringDone == 2);
 static_assert((uint8_t)Proto::RoomFilterOp::Exists == 0);
 static_assert((uint8_t)Proto::RoomFilterOp::Equals == 1);
 
+// And the leave reasons.
+static_assert((uint8_t)Proto::LeaveReason::Left == 0);
+static_assert((uint8_t)Proto::LeaveReason::Kicked == 1);
+static_assert((uint8_t)Proto::LeaveReason::Banned == 2);
+static_assert((uint8_t)Proto::LeaveReason::Disconnected == 3);
+
 // A reply carries every match, so the reassembly cap is the only ceiling.
 // Pins roughly how many rooms fit, assuming ids stay under 64 bytes.
 constexpr size_t worst_room_bytes = 14 + 64
@@ -156,6 +162,15 @@ TEST_CASE("room events round trip")
 	CHECK(std::get<Proto::PeerJoined>(RoundTrip(Proto::PeerJoined{ 3 })).id == 3);
 	CHECK(std::get<Proto::PeerLeft>(RoundTrip(Proto::PeerLeft{ 3 })).id == 3);
 	CHECK(std::get<Proto::HostChanged>(RoundTrip(Proto::HostChanged{ 3 })).id == 3);
+}
+
+TEST_CASE("peer left carries why")
+{
+	auto out = std::get<Proto::PeerLeft>(RoundTrip(Proto::PeerLeft{ 3, Proto::LeaveReason::Disconnected }));
+	CHECK(out.id == 3);
+	CHECK(out.reason == Proto::LeaveReason::Disconnected);
+
+	CHECK(std::get<Proto::PeerLeft>(RoundTrip(Proto::PeerLeft{ 3 })).reason == Proto::LeaveReason::Left);
 }
 
 TEST_CASE("host actions round trip")
